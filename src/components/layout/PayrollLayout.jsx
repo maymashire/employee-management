@@ -1,0 +1,42 @@
+import { NavLink, Outlet } from 'react-router-dom'
+import { List, Calculator, FileText, History, BarChart3, CheckCircle2 } from 'lucide-react'
+
+const TABS = [
+  { to: '/payroll/salary-list', label: 'Salary List',     Icon: List          },
+  { to: '/payroll/process',     label: 'Payroll Process', Icon: Calculator    },
+  { to: '/payroll/payslips',    label: 'Payslips',        Icon: FileText      },
+  { to: '/payroll/history',     label: 'History',         Icon: History       },
+  { to: '/payroll/reports',     label: 'Reports',         Icon: BarChart3     },
+  { to: '/payroll/pay-status',  label: 'Pay Status',      Icon: CheckCircle2  },
+]
+
+export default function PayrollLayout() {
+  return (
+    <div className="space-y-5">
+
+      {/* ── Tab bar ─────────────────────────────────────────────────────────── */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {TABS.map(({ to, label, Icon }) => (
+          <NavLink
+            key={to}
+            to={to}
+            className={({ isActive }) =>
+              `flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium
+               whitespace-nowrap transition-all duration-150 select-none
+               ${isActive
+                 ? 'bg-[#1e3a8a] text-white shadow-sm'
+                 : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+               }`
+            }
+          >
+            <Icon size={14} />
+            {label}
+          </NavLink>
+        ))}
+      </div>
+
+      {/* ── Active tab content ───────────────────────────────────────────────── */}
+      <Outlet />
+    </div>
+  )
+}
