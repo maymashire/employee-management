@@ -181,7 +181,8 @@ export default function PayrollReports() {
           <div className="px-6 py-4 border-b border-gray-100">
             <h3 className="text-sm font-bold text-gray-800">Department Breakdown</h3>
           </div>
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[360px]">
             <thead>
               <tr className="border-b border-gray-50 bg-gray-50/50">
                 {['Department','Total Payroll','Share'].map(h => (
@@ -214,6 +215,7 @@ export default function PayrollReports() {
               })}
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </div>

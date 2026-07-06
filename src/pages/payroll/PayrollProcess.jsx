@@ -33,7 +33,7 @@ function Toast({ toast, onDismiss }) {
   if (!toast) return null
   const ok = toast.type === 'success'
   return (
-    <div className={`fixed bottom-6 right-6 z-50 flex items-start gap-3 px-4 py-3 rounded-xl shadow-xl border text-sm font-medium max-w-sm
+    <div className={`fixed bottom-4 left-4 right-4 sm:left-auto sm:right-6 sm:bottom-6 sm:max-w-sm z-50 flex items-start gap-3 px-4 py-3 rounded-xl shadow-xl border text-sm font-medium
       ${ok ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
       {ok ? <CheckCircle2 size={17} className="text-emerald-500 shrink-0 mt-0.5" />
            : <AlertCircle  size={17} className="text-red-500 shrink-0 mt-0.5" />}
@@ -374,7 +374,7 @@ export default function PayrollProcess() {
           </div>
         )}
 
-        <div className="flex items-center justify-between px-5 py-4 border-t border-gray-100 bg-gray-50/50">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-5 py-4 border-t border-gray-100 bg-gray-50/50">
           <div>
             <p className="text-xs text-gray-500">Estimated total for {selected.size} selected</p>
             <p className="text-xl font-bold text-gray-900 mt-0.5">{fmt$(totalSelected)}</p>
@@ -382,7 +382,7 @@ export default function PayrollProcess() {
           <button
             onClick={handleGenerate}
             disabled={submitting || selected.size === 0}
-            className="flex items-center gap-2 px-6 py-3 bg-[#1e3a8a] hover:bg-[#162d6e] text-white text-sm font-semibold rounded-xl shadow-sm transition-colors disabled:opacity-60"
+            className="flex items-center justify-center gap-2 px-6 py-3 bg-[#1e3a8a] hover:bg-[#162d6e] text-white text-sm font-semibold rounded-xl shadow-sm transition-colors disabled:opacity-60 sm:w-auto w-full"
           >
             {submitting ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}
             {submitting ? 'Generating…' : 'Generate Payroll'}
@@ -394,7 +394,7 @@ export default function PayrollProcess() {
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
 
         {/* Panel header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-5 py-4 border-b border-gray-100">
           <div>
             <h3 className="text-sm font-semibold text-gray-700">
               Step 2 — Advance to Processing
@@ -404,7 +404,7 @@ export default function PayrollProcess() {
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             {/* Refresh button */}
             <button
               onClick={() => fetchPeriodRecords(month)}
