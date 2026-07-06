@@ -135,7 +135,7 @@ function EmployeeTab({ employees }) {
   return (
     <>
       {/* Mini stats */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {[
           { label: 'Total Employees', value: employees.length, cls: 'text-indigo-600', bg: 'bg-indigo-50' },
           { label: 'Active Staff',    value: totalActive,      cls: 'text-emerald-600', bg: 'bg-emerald-50' },

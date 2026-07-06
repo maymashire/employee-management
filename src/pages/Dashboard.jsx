@@ -237,10 +237,10 @@ export default function Dashboard() {
       </div>
 
       {/* ── Charts row ── */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
         {/* Area chart — Headcount Growth */}
-        <div className="col-span-2 bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+        <div className="lg:col-span-2 bg-white rounded-xl p-5 shadow-sm border border-gray-100">
           <SectionHeader title="Headcount Growth" />
           {loading ? (
             <Skeleton h="h-56" />
@@ -322,10 +322,10 @@ export default function Dashboard() {
       </div>
 
       {/* ── Bottom row ── */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
         {/* Recent Employees */}
-        <div className="col-span-2 bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+        <div className="lg:col-span-2 bg-white rounded-xl p-5 shadow-sm border border-gray-100">
           <SectionHeader title="Recent Employees" linkTo="/employees" />
           {loading ? (
             <Skeleton h="h-44" />

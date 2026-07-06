@@ -15,24 +15,26 @@ export default function PayrollLayout() {
     <div className="space-y-5">
 
       {/* ── Tab bar ─────────────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-1.5 flex-wrap">
-        {TABS.map(({ to, label, Icon }) => (
-          <NavLink
-            key={to}
-            to={to}
-            className={({ isActive }) =>
-              `flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium
-               whitespace-nowrap transition-all duration-150 select-none
-               ${isActive
-                 ? 'bg-[#1e3a8a] text-white shadow-sm'
-                 : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-               }`
-            }
-          >
-            <Icon size={14} />
-            {label}
-          </NavLink>
-        ))}
+      <div className="overflow-x-auto -mx-3 sm:mx-0 px-3 sm:px-0 pb-0.5">
+        <div className="flex items-center gap-1.5 min-w-max sm:min-w-0 sm:flex-wrap">
+          {TABS.map(({ to, label, Icon }) => (
+            <NavLink
+              key={to}
+              to={to}
+              className={({ isActive }) =>
+                `flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg text-sm font-medium
+                 whitespace-nowrap transition-all duration-150 select-none
+                 ${isActive
+                   ? 'bg-[#1e3a8a] text-white shadow-sm'
+                   : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                 }`
+              }
+            >
+              <Icon size={14} />
+              {label}
+            </NavLink>
+          ))}
+        </div>
       </div>
 
       {/* ── Active tab content ───────────────────────────────────────────────── */}

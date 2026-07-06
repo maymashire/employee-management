@@ -35,10 +35,11 @@ const PAYROLL_ITEMS = [
 
 // ─── sub-components ───────────────────────────────────────────────────────────
 
-function NavItem({ path, icon: Icon, label, compact = false }) {
+function NavItem({ path, icon: Icon, label, compact = false, onNavClick }) {
   return (
     <NavLink
       to={path}
+      onClick={onNavClick}
       className={({ isActive }) =>
         `flex items-center gap-2.5 rounded-lg text-sm font-medium transition-colors duration-150
          ${compact ? 'px-3 py-1.5' : 'px-3 py-2'}
@@ -54,7 +55,7 @@ function NavItem({ path, icon: Icon, label, compact = false }) {
   )
 }
 
-function SectionDropdown({ title, icon: Icon, items, basePath }) {
+function SectionDropdown({ title, icon: Icon, items, basePath, onNavClick }) {
   const { pathname } = useLocation()
   const childIsActive = pathname.startsWith(basePath)
   const [open, setOpen] = useState(childIsActive)
@@ -88,7 +89,7 @@ function SectionDropdown({ title, icon: Icon, items, basePath }) {
       {open && (
         <div className="mt-0.5 ml-6 pl-3 border-l border-blue-700/50 space-y-0.5">
           {items.map(item => (
-            <NavItem key={item.path} {...item} compact />
+            <NavItem key={item.path} {...item} compact onNavClick={onNavClick} />
           ))}
         </div>
       )}
@@ -105,7 +106,7 @@ const ROLE_BADGE = {
   Manager: 'bg-purple-400/20 text-purple-300',
 }
 
-export default function Sidebar() {
+export default function Sidebar({ open, onClose }) {
   const { isAdmin, canAccessPayroll, signOut, displayName, roleLabel, initials } = useAuth()
   const navigate = useNavigate()
 
@@ -115,90 +116,109 @@ export default function Sidebar() {
   }
 
   return (
-    <aside className="fixed inset-y-0 left-0 w-64 bg-[#1e3a8a] flex flex-col z-30 shadow-xl">
+    <>
+      {/* Mobile overlay — clicking it closes the sidebar */}
+      <div
+        className={`fixed inset-0 bg-black/50 z-20 lg:hidden transition-opacity duration-300
+          ${open ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+        onClick={onClose}
+        aria-hidden="true"
+      />
 
-      {/* Brand */}
-      <div className="h-16 flex items-center gap-3 px-5 border-b border-blue-800/70 shrink-0">
-        <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shrink-0">
-          <HeartHandshake size={16} className="text-[#1e3a8a]" strokeWidth={2} />
-        </div>
-        <div className="leading-tight">
-          <p className="text-white font-bold text-sm tracking-tight">VibeHR</p>
-          <p className="text-blue-300 text-[10px]">Better Culture, Better Work.</p>
-        </div>
-      </div>
+      {/* Sidebar panel */}
+      <aside
+        className={`fixed inset-y-0 left-0 w-64 bg-[#1e3a8a] flex flex-col z-30 shadow-xl
+          transform transition-transform duration-300 ease-in-out
+          ${open ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0`}
+      >
 
-      {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5">
-
-        <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-blue-400/80">
-          Main
-        </p>
-
-        {MAIN_NAV.map(item => <NavItem key={item.path} {...item} />)}
-
-        <div className="py-1">
-          <div className="border-t border-blue-800/60" />
-        </div>
-
-        <SectionDropdown
-          title="Attendance"
-          icon={Clock}
-          items={ATTENDANCE_ITEMS}
-          basePath="/attendance"
-        />
-
-        {canAccessPayroll && (
-          <>
-            <div className="py-1">
-              <div className="border-t border-blue-800/60" />
-            </div>
-            <SectionDropdown
-              title="Payroll"
-              icon={Wallet}
-              items={PAYROLL_ITEMS}
-              basePath="/payroll"
-            />
-          </>
-        )}
-      </nav>
-
-      {/* Footer */}
-      <div className="shrink-0 border-t border-blue-800/70">
-
-        {/* Settings + Sign Out */}
-        <div className="px-3 pt-2 pb-2 space-y-0.5">
-          {isAdmin && <NavItem path="/settings" icon={Settings} label="Settings" />}
-          <button
-            onClick={handleSignOut}
-            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium
-              text-blue-200 hover:bg-red-500/20 hover:text-red-300 transition-colors duration-150"
-          >
-            <LogOut size={16} strokeWidth={1.75} />
-            Sign Out
-          </button>
+        {/* Brand */}
+        <div className="h-16 flex items-center gap-3 px-5 border-b border-blue-800/70 shrink-0">
+          <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shrink-0">
+            <HeartHandshake size={16} className="text-[#1e3a8a]" strokeWidth={2} />
+          </div>
+          <div className="leading-tight">
+            <p className="text-white font-bold text-sm tracking-tight">VibeHR</p>
+            <p className="text-blue-300 text-[10px]">Better Culture, Better Work.</p>
+          </div>
         </div>
 
-        {/* User profile card — pinned to bottom */}
-        <div className="px-3 pb-3 border-t border-blue-800/50 pt-2">
-          <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-white/5">
-            <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center shrink-0 text-xs font-extrabold text-white">
-              {initials}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-white truncate capitalize leading-tight">
-                {displayName}
-              </p>
-              {roleLabel && (
-                <span className={`mt-0.5 inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${ROLE_BADGE[roleLabel] ?? 'bg-white/10 text-blue-200'}`}>
-                  {roleLabel}
-                </span>
-              )}
+        {/* Navigation */}
+        <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5">
+
+          <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-blue-400/80">
+            Main
+          </p>
+
+          {MAIN_NAV.map(item => (
+            <NavItem key={item.path} {...item} onNavClick={onClose} />
+          ))}
+
+          <div className="py-1">
+            <div className="border-t border-blue-800/60" />
+          </div>
+
+          <SectionDropdown
+            title="Attendance"
+            icon={Clock}
+            items={ATTENDANCE_ITEMS}
+            basePath="/attendance"
+            onNavClick={onClose}
+          />
+
+          {canAccessPayroll && (
+            <>
+              <div className="py-1">
+                <div className="border-t border-blue-800/60" />
+              </div>
+              <SectionDropdown
+                title="Payroll"
+                icon={Wallet}
+                items={PAYROLL_ITEMS}
+                basePath="/payroll"
+                onNavClick={onClose}
+              />
+            </>
+          )}
+        </nav>
+
+        {/* Footer */}
+        <div className="shrink-0 border-t border-blue-800/70">
+
+          {/* Settings + Sign Out */}
+          <div className="px-3 pt-2 pb-2 space-y-0.5">
+            {isAdmin && <NavItem path="/settings" icon={Settings} label="Settings" onNavClick={onClose} />}
+            <button
+              onClick={handleSignOut}
+              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium
+                text-blue-200 hover:bg-red-500/20 hover:text-red-300 transition-colors duration-150"
+            >
+              <LogOut size={16} strokeWidth={1.75} />
+              Sign Out
+            </button>
+          </div>
+
+          {/* User profile card — pinned to bottom */}
+          <div className="px-3 pb-3 border-t border-blue-800/50 pt-2">
+            <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-white/5">
+              <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center shrink-0 text-xs font-extrabold text-white">
+                {initials}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-white truncate capitalize leading-tight">
+                  {displayName}
+                </p>
+                {roleLabel && (
+                  <span className={`mt-0.5 inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${ROLE_BADGE[roleLabel] ?? 'bg-white/10 text-blue-200'}`}>
+                    {roleLabel}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-    </aside>
+      </aside>
+    </>
   )
 }

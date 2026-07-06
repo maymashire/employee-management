@@ -1,18 +1,21 @@
+import { useState } from 'react'
 import { Outlet } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import Header from './Header'
 
 export default function Layout() {
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+
   return (
     <div className="min-h-screen bg-gray-50">
-      <Sidebar />
+      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
-      {/* Offset for fixed sidebar */}
-      <div className="ml-64 flex flex-col min-h-screen">
-        <Header />
+      {/* Desktop: offset for fixed 256px sidebar; mobile: full-width */}
+      <div className="lg:ml-64 flex flex-col min-h-screen">
+        <Header onMenuToggle={() => setSidebarOpen(o => !o)} />
 
-        {/* Offset for fixed header */}
-        <main className="mt-16 flex-1 p-6">
+        {/* Offset for fixed header; smaller padding on mobile */}
+        <main className="mt-16 flex-1 p-3 sm:p-4 lg:p-6">
           <Outlet />
         </main>
       </div>
