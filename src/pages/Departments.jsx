@@ -249,13 +249,13 @@ export default function DepartmentsPage() {
     <div className="space-y-5">
 
       {/* Page header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Departments</h2>
           <p className="text-sm text-gray-400 mt-0.5">{departments.length} department{departments.length !== 1 ? 's' : ''}</p>
         </div>
         <button onClick={openAdd}
-          className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#1e3a8a] hover:bg-[#162d6e] text-white text-sm font-semibold rounded-xl shadow-sm transition-colors">
+          className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#1e3a8a] hover:bg-[#162d6e] text-white text-sm font-semibold rounded-xl shadow-sm transition-colors self-start sm:self-auto">
           <Plus size={16} /> New Department
         </button>
       </div>

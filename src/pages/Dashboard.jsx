@@ -40,7 +40,7 @@ function StatCard({ label, value, sub, icon: Icon, iconBg, iconColor, accent }) 
       <div className="flex items-start justify-between">
         <div>
           <p className="text-sm text-gray-500 font-medium">{label}</p>
-          <p className="text-3xl font-bold text-gray-800 mt-1 tracking-tight">{value}</p>
+          <p className="text-2xl lg:text-3xl font-bold text-gray-800 mt-1 tracking-tight truncate">{value}</p>
           {sub && <p className="text-xs text-gray-400 mt-1">{sub}</p>}
         </div>
         <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${iconBg}`}>

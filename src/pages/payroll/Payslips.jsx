@@ -78,7 +78,7 @@ function PayslipModal({ record, onClose }) {
           <div className="border-t border-gray-100" />
 
           {/* Employee info */}
-          <div className="grid grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             <div>
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Employee</p>
               <div className="flex items-center gap-3">

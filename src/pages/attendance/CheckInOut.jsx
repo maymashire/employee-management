@@ -164,7 +164,7 @@ export default function CheckInOut() {
             </svg>
             <span>{dateStr}</span>
           </div>
-          <h1 className="text-5xl font-mono font-bold tracking-wider text-white tabular-nums">
+          <h1 className="text-4xl sm:text-5xl font-mono font-bold tracking-wider text-white tabular-nums">
             {clockStr}
           </h1>
           <div className="flex items-center gap-6 text-xs text-slate-400 pt-2 border-t border-slate-800">
