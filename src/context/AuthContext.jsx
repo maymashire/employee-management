@@ -100,7 +100,7 @@ export function AuthProvider({ children }) {
     : (email, password) => supabase.auth.signInWithPassword({ email, password })
 
   const signOut = AUTH_BYPASS
-    ? () => Promise.resolve()
+    ? () => { sessionStorage.removeItem('wf_auth'); return Promise.resolve() }
     : () => supabase.auth.signOut()
 
   // ── Role flags ─────────────────────────────────────────────────────────────

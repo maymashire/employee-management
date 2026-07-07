@@ -8,8 +8,12 @@ import { Loader2 } from 'lucide-react'
 export default function ProtectedRoute({ children, adminOnly = false }) {
   const { user, profile, loading, isAdmin, isFinance } = useAuth()
 
-  // When AUTH_BYPASS is on, context already has Admin state — skip all guards.
-  if (AUTH_BYPASS) return children
+  // When AUTH_BYPASS is on, context already has Admin state.
+  // Still require the user to have passed through the login page (session flag).
+  if (AUTH_BYPASS) {
+    if (!sessionStorage.getItem('wf_auth')) return <Navigate to="/login" replace />
+    return children
+  }
 
   // ── Initial session check in progress ──────────────────────────────────────
   if (loading) {

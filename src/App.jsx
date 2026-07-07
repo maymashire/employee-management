@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { AuthProvider, AUTH_BYPASS } from './context/AuthContext'
+import { AuthProvider } from './context/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import Layout from './components/layout/Layout'
 import PayrollLayout from './components/layout/PayrollLayout'
@@ -27,10 +27,8 @@ import PayStatus       from './pages/payroll/PayStatus'
 function AppRoutes() {
   return (
     <Routes>
-      {/* Login — redirects straight to dashboard when AUTH_BYPASS is on */}
-      <Route path="/login" element={
-        AUTH_BYPASS ? <Navigate to="/dashboard" replace /> : <Login />
-      } />
+      {/* Login — always shown; validates hardcoded credentials */}
+      <Route path="/login" element={<Login />} />
 
       {/* Protected shell */}
       <Route
