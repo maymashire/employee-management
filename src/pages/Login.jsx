@@ -1,26 +1,35 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Eye, EyeOff, Lock, Mail, ShieldCheck } from 'lucide-react'
+import { Eye, EyeOff, Lock, Mail, ShieldCheck, Users, BarChart3, Zap, CheckCircle2 } from 'lucide-react'
 
 const VALID_EMAIL    = 'maryan@gmail.com'
 const VALID_PASSWORD = '123456'
+
+const FEATURES = [
+  { icon: Users,      text: 'Manage your entire workforce in one place' },
+  { icon: BarChart3,  text: 'Real-time analytics and attendance tracking' },
+  { icon: Zap,        text: 'Automated payroll processing & payslips' },
+]
+
+const STATS = [
+  { num: '50+',  label: 'Employees' },
+  { num: '15',   label: 'Departments' },
+  { num: '100%', label: 'Uptime' },
+]
 
 export default function Login() {
   const [email,    setEmail]    = useState('')
   const [password, setPassword] = useState('')
   const [showPwd,  setShowPwd]  = useState(false)
-  const [remember, setRemember] = useState(false)
   const [error,    setError]    = useState('')
   const [loading,  setLoading]  = useState(false)
-
   const navigate = useNavigate()
 
   async function handleSubmit(e) {
     e.preventDefault()
     setError('')
     setLoading(true)
-    await new Promise(r => setTimeout(r, 500))
-
+    await new Promise(r => setTimeout(r, 600))
     if (email.trim().toLowerCase() === VALID_EMAIL && password === VALID_PASSWORD) {
       sessionStorage.setItem('wf_auth', '1')
       navigate('/dashboard', { replace: true })
@@ -30,43 +39,117 @@ export default function Login() {
     }
   }
 
-  const inputBase =
-    'w-full rounded-xl border bg-gray-50 text-sm text-gray-800 placeholder:text-gray-400 ' +
-    'focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#1e3a8a]/20 focus:border-[#1e3a8a] ' +
-    'transition-all duration-200'
-
   return (
-    <div className="min-h-screen flex items-center justify-center p-4
-      bg-gradient-to-br from-slate-100 via-blue-50 to-indigo-100">
+    <div className="min-h-screen flex">
 
-      <div className="w-full max-w-md">
+      {/* ── LEFT PANEL ─────────────────────────────────────────────────────── */}
+      <div className="hidden lg:flex lg:w-[52%] relative overflow-hidden flex-col justify-between p-12"
+        style={{ background: 'linear-gradient(145deg, #0f172a 0%, #1e1b4b 45%, #1e3a8a 100%)' }}>
 
-        {/* ── Card ─────────────────────────────────────────────────────────── */}
-        <div className="bg-white rounded-2xl shadow-xl border border-gray-100 px-8 py-10 sm:px-10">
+        {/* Background glow blobs */}
+        <div className="absolute top-[-80px] left-[-80px] w-80 h-80 rounded-full opacity-20"
+          style={{ background: 'radial-gradient(circle, #6366f1, transparent)' }} />
+        <div className="absolute bottom-[-60px] right-[-40px] w-72 h-72 rounded-full opacity-15"
+          style={{ background: 'radial-gradient(circle, #3b82f6, transparent)' }} />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] rounded-full opacity-5"
+          style={{ background: 'radial-gradient(circle, #a78bfa, transparent)' }} />
 
-          {/* Brand */}
-          <div className="flex flex-col items-center mb-8">
-            {/* HR icon block */}
-            <div className="w-14 h-14 bg-[#1e3a8a] rounded-2xl flex items-center justify-center mb-4 shadow-lg shadow-blue-900/20">
-              <span className="text-white font-extrabold text-lg tracking-widest select-none">HR</span>
+        {/* Brand top */}
+        <div className="relative z-10">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+              style={{ background: 'linear-gradient(135deg, #6366f1, #3b82f6)' }}>
+              <span className="text-white font-extrabold text-sm tracking-wider">WF</span>
             </div>
-            <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">WorkForce</h1>
-            <p className="text-sm text-gray-500 mt-1 font-medium">Employee Management System</p>
+            <div>
+              <p className="text-white font-bold text-lg tracking-tight leading-none">WorkForce</p>
+              <p className="text-indigo-300 text-xs">Employee Management System</p>
+            </div>
           </div>
+        </div>
 
-          {/* Heading */}
-          <div className="mb-6">
-            <h2 className="text-[17px] font-bold text-gray-800">Sign in to your account</h2>
-            <p className="text-[13px] text-gray-400 mt-0.5">
-              Welcome back — enter your credentials to continue.
+        {/* Center content */}
+        <div className="relative z-10 space-y-10">
+          <div>
+            <h2 className="text-4xl font-extrabold text-white leading-tight tracking-tight">
+              Smarter way to<br />
+              <span style={{
+                background: 'linear-gradient(90deg, #a5b4fc, #60a5fa)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                backgroundClip: 'text',
+              }}>manage your people.</span>
+            </h2>
+            <p className="mt-4 text-indigo-200/80 text-base leading-relaxed max-w-sm">
+              From attendance to payroll — everything your HR team needs in a single, beautiful dashboard.
             </p>
           </div>
 
-          {/* Error banner */}
+          {/* Feature list */}
+          <div className="space-y-4">
+            {FEATURES.map(({ icon: Icon, text }) => (
+              <div key={text} className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+                  style={{ background: 'rgba(99,102,241,0.25)' }}>
+                  <Icon size={15} className="text-indigo-300" />
+                </div>
+                <span className="text-indigo-100/80 text-sm">{text}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Floating stat cards */}
+          <div className="flex gap-3">
+            {STATS.map(({ num, label }, i) => (
+              <div key={label}
+                className={`flex-1 rounded-2xl p-4 text-center float-${i + 1}`}
+                style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                <p className="text-2xl font-extrabold text-white">{num}</p>
+                <p className="text-indigo-300 text-xs mt-0.5">{label}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Bottom */}
+        <div className="relative z-10">
+          <div className="flex items-center gap-2 rounded-2xl p-4"
+            style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)' }}>
+            <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+            <p className="text-indigo-200/70 text-xs">
+              Enterprise-grade security · ISO 27001 compliant · SOC 2 Type II
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* ── RIGHT PANEL ────────────────────────────────────────────────────── */}
+      <div className="flex-1 flex items-center justify-center p-6 sm:p-10 bg-white">
+        <div className="w-full max-w-sm fade-in">
+
+          {/* Mobile brand */}
+          <div className="lg:hidden flex items-center justify-center gap-3 mb-10">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center"
+              style={{ background: 'linear-gradient(135deg, #6366f1, #3b82f6)' }}>
+              <span className="text-white font-extrabold text-sm">WF</span>
+            </div>
+            <div>
+              <p className="font-bold text-lg text-gray-900 leading-none">WorkForce</p>
+              <p className="text-gray-400 text-xs">Employee Management System</p>
+            </div>
+          </div>
+
+          {/* Heading */}
+          <div className="mb-8">
+            <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">Welcome back</h1>
+            <p className="text-gray-400 text-sm mt-1">Sign in to continue to your dashboard.</p>
+          </div>
+
+          {/* Error */}
           {error && (
-            <div className="flex items-center gap-2.5 bg-red-50 border border-red-200 text-red-700
-              text-sm px-4 py-3 rounded-xl mb-5">
-              <span className="shrink-0 text-base">⚠️</span>
+            <div className="flex items-start gap-2.5 bg-red-50 border border-red-200 text-red-700
+              text-sm px-4 py-3 rounded-xl mb-6">
+              <span className="shrink-0 mt-0.5">⚠️</span>
               <span>{error}</span>
             </div>
           )}
@@ -74,133 +157,79 @@ export default function Login() {
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-5" noValidate>
 
-            {/* Email */}
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                Email address
-              </label>
+              <label className="block text-sm font-semibold text-gray-700 mb-1.5">Email address</label>
               <div className="relative">
-                <Mail
-                  size={15}
-                  className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
-                />
+                <Mail size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                 <input
-                  type="email"
-                  required
-                  autoComplete="email"
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
+                  type="email" required autoComplete="email"
+                  value={email} onChange={e => setEmail(e.target.value)}
                   placeholder="you@company.com"
-                  className={`${inputBase} border-gray-200 pl-10 pr-4 py-3`}
+                  className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 bg-gray-50
+                    text-sm text-gray-900 placeholder:text-gray-400
+                    focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500
+                    transition-all duration-200"
                 />
               </div>
             </div>
 
-            {/* Password */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="text-sm font-semibold text-gray-700">Password</label>
-                <button
-                  type="button"
-                  className="text-xs font-medium text-[#1e3a8a] hover:text-[#162d6e] hover:underline transition-colors"
-                >
+                <button type="button" className="text-xs font-medium text-indigo-600 hover:text-indigo-800 transition-colors">
                   Forgot password?
                 </button>
               </div>
               <div className="relative">
-                <Lock
-                  size={15}
-                  className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
-                />
+                <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                 <input
-                  type={showPwd ? 'text' : 'password'}
-                  required
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
+                  type={showPwd ? 'text' : 'password'} required autoComplete="current-password"
+                  value={password} onChange={e => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className={`${inputBase} border-gray-200 pl-10 pr-12 py-3`}
+                  className="w-full pl-10 pr-12 py-3 rounded-xl border border-gray-200 bg-gray-50
+                    text-sm text-gray-900 placeholder:text-gray-400
+                    focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500
+                    transition-all duration-200"
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowPwd(p => !p)}
-                  tabIndex={-1}
-                  aria-label={showPwd ? 'Hide password' : 'Show password'}
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
-                >
+                <button type="button" onClick={() => setShowPwd(p => !p)} tabIndex={-1}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors">
                   {showPwd ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
             </div>
 
-            {/* Remember me */}
-            <div className="flex items-center gap-2.5 select-none">
-              <input
-                id="remember"
-                type="checkbox"
-                checked={remember}
-                onChange={e => setRemember(e.target.checked)}
-                className="w-4 h-4 rounded border-gray-300 cursor-pointer accent-[#1e3a8a]"
-              />
-              <label htmlFor="remember" className="text-sm text-gray-600 cursor-pointer">
-                Remember me for 30 days
-              </label>
-            </div>
-
-            {/* Submit */}
             <button
-              type="submit"
-              disabled={loading}
-              className="w-full flex items-center justify-center gap-2 py-3.5 mt-1
-                bg-[#1e3a8a] hover:bg-[#162d6e] active:bg-[#0f2359]
-                text-white text-sm font-semibold rounded-xl
-                shadow-md shadow-blue-900/20
-                transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed"
+              type="submit" disabled={loading}
+              className="w-full py-3.5 mt-1 rounded-xl text-white text-sm font-bold
+                transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed
+                flex items-center justify-center gap-2 shadow-lg"
+              style={{
+                background: loading ? '#4f46e5' : 'linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%)',
+                boxShadow: '0 8px 24px rgba(79,70,229,0.35)',
+              }}
             >
               {loading ? (
                 <>
-                  <svg
-                    className="animate-spin h-4 w-4 shrink-0"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12" cy="12" r="10"
-                      stroke="currentColor" strokeWidth="4"
-                    />
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                    />
+                  <svg className="animate-spin h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
                   Signing in…
                 </>
-              ) : (
-                'Sign in'
-              )}
+              ) : 'Sign in →'}
             </button>
           </form>
 
           {/* Footer */}
           <div className="flex items-center justify-center gap-1.5 mt-8 text-xs text-gray-400">
-            <ShieldCheck size={13} className="shrink-0" />
-            <span>Enterprise-grade security</span>
-            <span className="opacity-40">·</span>
-            <button
-              type="button"
-              className="hover:text-gray-600 hover:underline underline-offset-2 transition-colors"
-            >
-              Privacy policy
-            </button>
+            <ShieldCheck size={13} className="shrink-0 text-emerald-500" />
+            <span>Secured with 256-bit encryption</span>
           </div>
-        </div>
 
-        {/* Below-card copyright */}
-        <p className="text-center text-xs text-gray-400 mt-5">
-          &copy; {new Date().getFullYear()} WorkForce. All rights reserved.
-        </p>
+          <p className="text-center text-xs text-gray-300 mt-4">
+            © {new Date().getFullYear()} WorkForce. All rights reserved.
+          </p>
+        </div>
       </div>
     </div>
   )

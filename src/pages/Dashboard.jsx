@@ -1,24 +1,20 @@
 import { useState, useEffect } from 'react'
 import { getEmployees, getDepartments, getAttendanceByDate, getPayrollRecordsByYear } from '../lib/db'
 import { useAuth } from '../context/AuthContext'
-import { Users, Building2, Clock, DollarSign, ArrowRight } from 'lucide-react'
+import { Users, Building2, Clock, DollarSign, ArrowRight, TrendingUp } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend,
 } from 'recharts'
 
-// ─── constants ────────────────────────────────────────────────────────────────
-
-const DEPT_COLORS = ['#1e3a8a', '#2563eb', '#3b82f6', '#60a5fa', '#34d399', '#a78bfa']
+const DEPT_COLORS = ['#6366f1', '#3b82f6', '#06b6d4', '#10b981', '#f59e0b', '#f43f5e']
 
 const fmtCurrency = n =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
 
 const fmtDate = iso =>
-  iso
-    ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-    : '—'
+  iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
 
 function last12Months() {
   return Array.from({ length: 12 }, (_, i) => {
@@ -32,19 +28,34 @@ function last12Months() {
   })
 }
 
-// ─── sub-components ───────────────────────────────────────────────────────────
+function greeting() {
+  const h = new Date().getHours()
+  if (h < 12) return 'Good morning'
+  if (h < 17) return 'Good afternoon'
+  return 'Good evening'
+}
 
-function StatCard({ label, value, sub, icon: Icon, iconBg, iconColor, accent }) {
+// ── Sub-components ─────────────────────────────────────────────────────────────
+
+function StatCard({ label, value, sub, icon: Icon, gradient, glowColor }) {
   return (
-    <div className={`bg-white rounded-xl p-5 shadow-sm border border-gray-100 border-l-4 ${accent}`}>
+    <div className="rounded-2xl p-5 relative overflow-hidden"
+      style={{
+        background: gradient,
+        boxShadow: `0 8px 32px ${glowColor}`,
+      }}>
+      {/* Subtle inner highlight */}
+      <div className="absolute inset-x-0 top-0 h-px opacity-40"
+        style={{ background: 'linear-gradient(90deg, transparent, white, transparent)' }} />
+
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-sm text-gray-500 font-medium">{label}</p>
-          <p className="text-2xl lg:text-3xl font-bold text-gray-800 mt-1 tracking-tight truncate">{value}</p>
-          {sub && <p className="text-xs text-gray-400 mt-1">{sub}</p>}
+          <p className="text-sm text-white/70 font-medium">{label}</p>
+          <p className="text-3xl font-extrabold text-white mt-1 tracking-tight">{value}</p>
+          {sub && <p className="text-xs text-white/60 mt-1">{sub}</p>}
         </div>
-        <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${iconBg}`}>
-          <Icon size={20} className={iconColor} />
+        <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 bg-white/15">
+          <Icon size={20} className="text-white" />
         </div>
       </div>
     </div>
@@ -55,31 +66,27 @@ function SectionHeader({ title, linkTo }) {
   const navigate = useNavigate()
   return (
     <div className="flex items-center justify-between mb-4">
-      <h3 className="font-semibold text-gray-800">{title}</h3>
+      <h3 className="font-bold text-gray-800 text-base">{title}</h3>
       {linkTo && (
-        <button
-          onClick={() => navigate(linkTo)}
-          className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-medium transition-colors"
-        >
-          View all <ArrowRight size={13} />
+        <button onClick={() => navigate(linkTo)}
+          className="flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800 transition-colors">
+          View all <ArrowRight size={12} />
         </button>
       )}
     </div>
   )
 }
 
-// Custom tooltip for the area chart
 function HeadcountTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null
   return (
-    <div className="bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-xs">
-      <p className="font-semibold text-gray-700 mb-0.5">{label}</p>
-      <p className="text-blue-600">{payload[0].value} employees</p>
+    <div className="bg-gray-900 rounded-xl shadow-xl px-3 py-2.5 text-xs border border-white/10">
+      <p className="font-semibold text-gray-300 mb-0.5">{label}</p>
+      <p className="text-indigo-400 font-bold">{payload[0].value} employees</p>
     </div>
   )
 }
 
-// Custom label for pie chart
 function PieLabel({ cx, cy, midAngle, outerRadius, percent }) {
   if (percent < 0.06) return null
   const RADIAN = Math.PI / 180
@@ -87,193 +94,194 @@ function PieLabel({ cx, cy, midAngle, outerRadius, percent }) {
   const x = cx + radius * Math.cos(-midAngle * RADIAN)
   const y = cy + radius * Math.sin(-midAngle * RADIAN)
   return (
-    <text x={x} y={y} textAnchor="middle" dominantBaseline="central" className="text-[11px]" fill="#6b7280">
+    <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fontSize={11} fill="#6b7280">
       {`${(percent * 100).toFixed(0)}%`}
     </text>
   )
 }
 
-// ─── Dashboard ────────────────────────────────────────────────────────────────
+function Skeleton() {
+  return <div className="h-full w-full rounded-xl shimmer" />
+}
+
+function EmptyChart({ message }) {
+  return (
+    <div className="h-44 flex items-center justify-center text-sm text-gray-300 font-medium">
+      {message}
+    </div>
+  )
+}
+
+// ── Dashboard ──────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
   const { displayName } = useAuth()
 
-  const [stats,           setStats]           = useState({ total: 0, departments: 0, presentToday: 0, monthlyPayroll: 0 })
-  const [headcountData,   setHeadcountData]   = useState([])
-  const [deptDonutData,   setDeptDonutData]   = useState([])
-  const [recentEmployees, setRecentEmployees] = useState([])
+  const [stats,             setStats]             = useState({ total: 0, departments: 0, presentToday: 0, monthlyPayroll: 0 })
+  const [headcountData,     setHeadcountData]     = useState([])
+  const [deptDonutData,     setDeptDonutData]     = useState([])
+  const [recentEmployees,   setRecentEmployees]   = useState([])
   const [attendanceSummary, setAttendanceSummary] = useState({ present: 0, total: 0 })
-  const [loading,         setLoading]         = useState(true)
+  const [loading,           setLoading]           = useState(true)
 
   useEffect(() => {
     async function load() {
       setLoading(true)
-      const today      = new Date().toISOString().slice(0, 10)
-      const monthStart = `${today.slice(0, 7)}-01`
+      const today     = new Date().toISOString().slice(0, 10)
+      const monthStr  = today.slice(0, 7)
 
-      const [allEmps, allDepts, todayAttendance, payrollThisYear] = await Promise.all([
+      const [allEmps, allDepts, todayAtt, payrollYear] = await Promise.all([
         getEmployees(),
         getDepartments(),
         getAttendanceByDate(today),
         getPayrollRecordsByYear(new Date().getFullYear()),
       ])
 
-      const employees         = allEmps.filter(e => e.status === 'active')
-      const deptCount         = allDepts.length
-      const payrollThisMonth  = payrollThisYear.filter(
-        r => r.pay_period?.startsWith(monthStart.slice(0, 7)) && r.status === 'Paid'
-      )
-
-      const empList = employees
-
-      // ── Stat values ──
-      const presentCount    = todayAttendance?.filter(a => a.status === 'present').length ?? 0
-      const monthlyPayTotal = payrollThisMonth?.reduce((s, r) => s + (Number(r.net_salary) || 0), 0) ?? 0
+      const employees        = allEmps.filter(e => e.status === 'active')
+      const presentCount     = todayAtt?.filter(a => a.status === 'present').length ?? 0
+      const monthlyPayTotal  = payrollYear
+        .filter(r => r.pay_period?.startsWith(monthStr) && r.status === 'Paid')
+        .reduce((s, r) => s + (Number(r.net_salary) || 0), 0)
 
       setStats({
-        total:          empList.length,
-        departments:    deptCount,
+        total:          employees.length,
+        departments:    allDepts.length,
         presentToday:   presentCount,
         monthlyPayroll: monthlyPayTotal,
       })
 
-      // ── Headcount growth (last 12 months) ──
       const months = last12Months()
       setHeadcountData(
         months.map(({ label, endDate }) => ({
           month:     label,
-          employees: empList.filter(e => e.hire_date && new Date(e.hire_date) <= endDate).length,
-        })),
+          employees: employees.filter(e => e.hire_date && new Date(e.hire_date) <= endDate).length,
+        }))
       )
 
-      // ── Department donut ──
       const deptMap = {}
-      empList.forEach(e => {
+      employees.forEach(e => {
         const name = e.departments?.name ?? 'Unassigned'
         deptMap[name] = (deptMap[name] ?? 0) + 1
       })
       setDeptDonutData(
-        Object.entries(deptMap)
-          .map(([name, value]) => ({ name, value }))
-          .sort((a, b) => b.value - a.value),
+        Object.entries(deptMap).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value)
       )
 
-      // ── Recent employees (5 most recently hired) ──
-      const recent = [...empList]
+      const recent = [...employees]
         .sort((a, b) => (b.hire_date ?? '').localeCompare(a.hire_date ?? ''))
         .slice(0, 5)
       setRecentEmployees(recent)
 
-      // ── Today's attendance summary ──
-      setAttendanceSummary({
-        present: presentCount,
-        total:   empList.length,
-      })
-
+      setAttendanceSummary({ present: presentCount, total: employees.length })
       setLoading(false)
     }
-
     load()
   }, [])
 
-  const attendancePct =
-    attendanceSummary.total > 0
-      ? Math.round((attendanceSummary.present / attendanceSummary.total) * 100)
-      : 0
+  const attendancePct = attendanceSummary.total > 0
+    ? Math.round((attendanceSummary.present / attendanceSummary.total) * 100)
+    : 0
 
-  // ── render ───────────────────────────────────────────────────────────────────
+  const firstName = displayName.split(' ')[0]
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 fade-in">
 
-      {/* Welcome */}
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900">
-          Good {greeting()}, {displayName.split(' ')[0]} 👋
-        </h2>
-        <p className="text-sm text-gray-400 mt-0.5">
-          Here's what's happening across your workforce today.
-        </p>
+      {/* ── Welcome Banner ── */}
+      <div className="relative rounded-2xl overflow-hidden"
+        style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #1e3a8a 100%)' }}>
+        {/* Glow blobs */}
+        <div className="absolute top-[-40px] right-[-40px] w-48 h-48 rounded-full opacity-20"
+          style={{ background: 'radial-gradient(circle, #6366f1, transparent)' }} />
+        <div className="absolute bottom-[-20px] left-[30%] w-32 h-32 rounded-full opacity-10"
+          style={{ background: 'radial-gradient(circle, #3b82f6, transparent)' }} />
+
+        <div className="relative z-10 px-6 py-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <p className="text-indigo-300 text-sm font-medium mb-1">{greeting()},</p>
+            <h2 className="text-2xl font-extrabold text-white tracking-tight">
+              {firstName} 👋
+            </h2>
+            <p className="text-indigo-200/60 text-sm mt-1">
+              Here's what's happening across your workforce today.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <div className="px-4 py-2 rounded-xl text-center"
+              style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.1)' }}>
+              <p className="text-white font-extrabold text-xl">{loading ? '…' : attendancePct}<span className="text-sm text-indigo-300">%</span></p>
+              <p className="text-indigo-300 text-xs">Present today</p>
+            </div>
+            <div className="px-4 py-2 rounded-xl text-center"
+              style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.1)' }}>
+              <p className="text-white font-extrabold text-xl">{loading ? '…' : stats.total}</p>
+              <p className="text-indigo-300 text-xs">Total staff</p>
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* ── Stat cards ── */}
+      {/* ── Stat Cards ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label="Total Employees"
           value={loading ? '…' : stats.total}
           sub="Active headcount"
           icon={Users}
-          iconBg="bg-blue-50"
-          iconColor="text-blue-600"
-          accent="border-l-blue-500"
+          gradient="linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)"
+          glowColor="rgba(79,70,229,0.25)"
         />
         <StatCard
           label="Departments"
           value={loading ? '…' : stats.departments}
           sub="Across the company"
           icon={Building2}
-          iconBg="bg-emerald-50"
-          iconColor="text-emerald-600"
-          accent="border-l-emerald-500"
+          gradient="linear-gradient(135deg, #0891b2 0%, #06b6d4 100%)"
+          glowColor="rgba(8,145,178,0.25)"
         />
         <StatCard
           label="Present Today"
           value={loading ? '…' : stats.presentToday}
           sub={`of ${stats.total} employees`}
           icon={Clock}
-          iconBg="bg-amber-50"
-          iconColor="text-amber-600"
-          accent="border-l-amber-500"
+          gradient="linear-gradient(135deg, #d97706 0%, #f59e0b 100%)"
+          glowColor="rgba(217,119,6,0.25)"
         />
         <StatCard
           label="Monthly Payroll"
           value={loading ? '…' : fmtCurrency(stats.monthlyPayroll)}
           sub="Paid this month"
           icon={DollarSign}
-          iconBg="bg-purple-50"
-          iconColor="text-purple-600"
-          accent="border-l-purple-500"
+          gradient="linear-gradient(135deg, #059669 0%, #10b981 100%)"
+          glowColor="rgba(5,150,105,0.25)"
         />
       </div>
 
-      {/* ── Charts row ── */}
+      {/* ── Charts Row ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
-        {/* Area chart — Headcount Growth */}
-        <div className="lg:col-span-2 bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+        {/* Area chart */}
+        <div className="lg:col-span-2 bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
           <SectionHeader title="Headcount Growth" />
           {loading ? (
-            <Skeleton h="h-56" />
+            <div className="h-56"><Skeleton /></div>
           ) : (
             <ResponsiveContainer width="100%" height={224}>
               <AreaChart data={headcountData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
                 <defs>
-                  <linearGradient id="blueGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor="#1e3a8a" stopOpacity={0.15} />
-                    <stop offset="95%" stopColor="#1e3a8a" stopOpacity={0} />
+                  <linearGradient id="indigo-grad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor="#6366f1" stopOpacity={0.2} />
+                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis
-                  dataKey="month"
-                  tick={{ fontSize: 11, fill: '#94a3b8' }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis
-                  allowDecimals={false}
-                  tick={{ fontSize: 11, fill: '#94a3b8' }}
-                  axisLine={false}
-                  tickLine={false}
-                />
+                <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
                 <Tooltip content={<HeadcountTooltip />} />
-                <Area
-                  type="monotone"
-                  dataKey="employees"
-                  stroke="#1e3a8a"
-                  strokeWidth={2.5}
-                  fill="url(#blueGrad)"
-                  dot={{ fill: '#1e3a8a', r: 3, strokeWidth: 0 }}
+                <Area type="monotone" dataKey="employees"
+                  stroke="#6366f1" strokeWidth={2.5}
+                  fill="url(#indigo-grad)"
+                  dot={{ fill: '#6366f1', r: 3, strokeWidth: 0 }}
                   activeDot={{ r: 5, strokeWidth: 0 }}
                 />
               </AreaChart>
@@ -281,89 +289,89 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Pie chart — By Department */}
-        <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+        {/* Pie chart */}
+        <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
           <SectionHeader title="By Department" />
           {loading ? (
-            <Skeleton h="h-56" />
+            <div className="h-56"><Skeleton /></div>
           ) : deptDonutData.length === 0 ? (
             <EmptyChart message="No employees yet" />
           ) : (
             <ResponsiveContainer width="100%" height={224}>
               <PieChart>
-                <Pie
-                  data={deptDonutData}
-                  cx="50%"
-                  cy="44%"
-                  innerRadius={52}
-                  outerRadius={75}
-                  paddingAngle={3}
-                  dataKey="value"
-                  labelLine={false}
-                  label={<PieLabel />}
-                >
+                <Pie data={deptDonutData} cx="50%" cy="44%"
+                  innerRadius={52} outerRadius={75} paddingAngle={3}
+                  dataKey="value" labelLine={false} label={<PieLabel />}>
                   {deptDonutData.map((_, i) => (
                     <Cell key={i} fill={DEPT_COLORS[i % DEPT_COLORS.length]} />
                   ))}
                 </Pie>
-                <Legend
-                  iconType="circle"
-                  iconSize={8}
-                  formatter={v => <span style={{ fontSize: 11, color: '#64748b' }}>{v}</span>}
-                />
-                <Tooltip
-                  formatter={(v, n) => [v, n]}
-                  contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}
-                />
+                <Legend iconType="circle" iconSize={8}
+                  formatter={v => <span style={{ fontSize: 11, color: '#64748b' }}>{v}</span>} />
+                <Tooltip formatter={(v, n) => [v, n]}
+                  contentStyle={{ fontSize: 12, borderRadius: 12, border: '1px solid #e2e8f0' }} />
               </PieChart>
             </ResponsiveContainer>
           )}
         </div>
       </div>
 
-      {/* ── Bottom row ── */}
+      {/* ── Bottom Row ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
         {/* Recent Employees */}
-        <div className="lg:col-span-2 bg-white rounded-xl p-5 shadow-sm border border-gray-100">
-          <SectionHeader title="Recent Employees" linkTo="/employees" />
+        <div className="lg:col-span-2 bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+          <SectionHeader title="Recently Hired" linkTo="/employees" />
           {loading ? (
-            <Skeleton h="h-44" />
+            <div className="h-44"><Skeleton /></div>
           ) : recentEmployees.length === 0 ? (
             <EmptyChart message="No employees added yet" />
           ) : (
             <div className="space-y-3">
-              {recentEmployees.map(emp => (
-                <div key={emp.id} className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-full bg-[#1e3a8a] flex items-center justify-center text-white text-xs font-bold shrink-0">
-                    {`${emp.first_name?.[0] ?? ''}${emp.last_name?.[0] ?? ''}`.toUpperCase()}
+              {recentEmployees.map((emp, i) => {
+                const ini = `${emp.first_name?.[0] ?? ''}${emp.last_name?.[0] ?? ''}`.toUpperCase()
+                const grad = [
+                  'linear-gradient(135deg,#6366f1,#8b5cf6)',
+                  'linear-gradient(135deg,#3b82f6,#06b6d4)',
+                  'linear-gradient(135deg,#10b981,#3b82f6)',
+                  'linear-gradient(135deg,#f59e0b,#ef4444)',
+                  'linear-gradient(135deg,#f43f5e,#a855f7)',
+                ][i % 5]
+                return (
+                  <div key={emp.id} className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-gray-50 transition-colors">
+                    <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-extrabold shrink-0"
+                      style={{ background: grad }}>
+                      {ini}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-gray-800 truncate">
+                        {emp.first_name} {emp.last_name}
+                      </p>
+                      <p className="text-xs text-gray-400 truncate">
+                        {emp.job_title ?? '—'} · {emp.departments?.name ?? 'No dept'}
+                      </p>
+                    </div>
+                    <p className="text-xs text-gray-400 shrink-0 font-medium">{fmtDate(emp.hire_date)}</p>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-gray-800 truncate">
-                      {emp.first_name} {emp.last_name}
-                    </p>
-                    <p className="text-xs text-gray-400 truncate">
-                      {emp.job_title ?? '—'} · {emp.departments?.name ?? 'No dept'}
-                    </p>
-                  </div>
-                  <p className="text-xs text-gray-400 shrink-0">{fmtDate(emp.hire_date)}</p>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>
 
         {/* Today's Attendance */}
-        <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+        <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
           <SectionHeader title="Today's Attendance" linkTo="/attendance/daily" />
           {loading ? (
-            <Skeleton h="h-44" />
+            <div className="h-44"><Skeleton /></div>
           ) : (
             <div className="flex flex-col h-44 justify-between">
               {/* Big number */}
               <div className="text-center pt-2">
-                <p className="text-5xl font-bold text-gray-800">{attendancePct}<span className="text-2xl text-gray-400">%</span></p>
-                <p className="text-sm text-gray-500 mt-1">
+                <p className="text-5xl font-extrabold text-gray-900 tracking-tight">
+                  {attendancePct}<span className="text-2xl text-gray-300">%</span>
+                </p>
+                <p className="text-sm text-gray-400 mt-1">
                   {attendanceSummary.present} of {attendanceSummary.total} present
                 </p>
               </div>
@@ -375,10 +383,11 @@ export default function Dashboard() {
                   <span>{attendanceSummary.present}</span>
                 </div>
                 <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-[#1e3a8a] rounded-full transition-all duration-700"
-                    style={{ width: `${attendancePct}%` }}
-                  />
+                  <div className="h-full rounded-full transition-all duration-700"
+                    style={{
+                      width: `${attendancePct}%`,
+                      background: 'linear-gradient(90deg, #6366f1, #3b82f6)',
+                    }} />
                 </div>
                 <div className="flex justify-between text-xs text-gray-400 mt-1.5">
                   <span>Absent</span>
@@ -386,12 +395,12 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* Status pills */}
+              {/* Pills */}
               <div className="flex gap-2 flex-wrap">
-                <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-full text-xs font-medium">
+                <span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-full text-xs font-semibold">
                   ● Present: {attendanceSummary.present}
                 </span>
-                <span className="px-2.5 py-1 bg-red-50 text-red-600 rounded-full text-xs font-medium">
+                <span className="px-2.5 py-1 bg-red-50 text-red-500 rounded-full text-xs font-semibold">
                   ● Absent: {attendanceSummary.total - attendanceSummary.present}
                 </span>
               </div>
@@ -399,29 +408,6 @@ export default function Dashboard() {
           )}
         </div>
       </div>
-    </div>
-  )
-}
-
-// ─── tiny helpers ─────────────────────────────────────────────────────────────
-
-function greeting() {
-  const h = new Date().getHours()
-  if (h < 12) return 'morning'
-  if (h < 17) return 'afternoon'
-  return 'evening'
-}
-
-function Skeleton({ h = 'h-40' }) {
-  return (
-    <div className={`${h} bg-gray-100 rounded-lg animate-pulse`} />
-  )
-}
-
-function EmptyChart({ message }) {
-  return (
-    <div className="h-44 flex items-center justify-center text-sm text-gray-300 font-medium">
-      {message}
     </div>
   )
 }

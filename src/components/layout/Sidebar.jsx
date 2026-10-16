@@ -4,11 +4,9 @@ import {
   LayoutDashboard, Users, Building2,
   Clock, CalendarDays, ScanLine, Calendar, BarChart3,
   Wallet, FileSpreadsheet, Calculator, FileText, History,
-  Settings, LogOut, ChevronDown, HeartHandshake, Activity,
+  Settings, LogOut, ChevronDown, Activity, Sparkles,
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
-
-// ─── nav definitions ──────────────────────────────────────────────────────────
 
 const MAIN_NAV = [
   { label: 'Dashboard',   path: '/dashboard',   icon: LayoutDashboard },
@@ -33,23 +31,25 @@ const PAYROLL_ITEMS = [
   { label: 'Pay Status',      path: '/payroll/pay-status',  icon: Clock },
 ]
 
-// ─── sub-components ───────────────────────────────────────────────────────────
-
 function NavItem({ path, icon: Icon, label, compact = false, onNavClick }) {
   return (
     <NavLink
       to={path}
       onClick={onNavClick}
       className={({ isActive }) =>
-        `flex items-center gap-2.5 rounded-lg text-sm font-medium transition-colors duration-150
-         ${compact ? 'px-3 py-1.5' : 'px-3 py-2'}
+        `flex items-center gap-2.5 rounded-xl text-sm font-medium transition-all duration-150
+         ${compact ? 'px-3 py-1.5' : 'px-3 py-2.5'}
          ${isActive
-           ? 'bg-white/15 text-white'
-           : 'text-blue-200 hover:bg-white/10 hover:text-white'
+           ? 'text-white shadow-md'
+           : 'text-slate-400 hover:text-white hover:bg-white/8'
          }`
       }
+      style={({ isActive }) => isActive ? {
+        background: 'linear-gradient(135deg, rgba(99,102,241,0.9) 0%, rgba(59,130,246,0.9) 100%)',
+        boxShadow: '0 4px 14px rgba(99,102,241,0.4)',
+      } : undefined}
     >
-      <Icon size={compact ? 14 : 16} strokeWidth={1.75} />
+      <Icon size={compact ? 13 : 15} strokeWidth={1.8} />
       {label}
     </NavLink>
   )
@@ -68,26 +68,26 @@ function SectionDropdown({ title, icon: Icon, items, basePath, onNavClick }) {
     <div>
       <button
         onClick={() => setOpen(o => !o)}
-        className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium
-          transition-colors duration-150
+        className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium
+          transition-all duration-150
           ${childIsActive
-            ? 'bg-white/10 text-white'
-            : 'text-blue-200 hover:bg-white/10 hover:text-white'
+            ? 'text-white bg-white/10'
+            : 'text-slate-400 hover:text-white hover:bg-white/8'
           }`}
       >
         <span className="flex items-center gap-2.5">
-          <Icon size={16} strokeWidth={1.75} />
+          <Icon size={15} strokeWidth={1.8} />
           {title}
         </span>
         <ChevronDown
-          size={13}
-          className="transition-transform duration-200 shrink-0 opacity-60"
+          size={12}
+          className="transition-transform duration-200 shrink-0 opacity-50"
           style={{ transform: open ? 'rotate(0deg)' : 'rotate(-90deg)' }}
         />
       </button>
 
       {open && (
-        <div className="mt-0.5 ml-6 pl-3 border-l border-blue-700/50 space-y-0.5">
+        <div className="mt-0.5 ml-5 pl-3 border-l border-white/10 space-y-0.5">
           {items.map(item => (
             <NavItem key={item.path} {...item} compact onNavClick={onNavClick} />
           ))}
@@ -97,13 +97,11 @@ function SectionDropdown({ title, icon: Icon, items, basePath, onNavClick }) {
   )
 }
 
-// ─── Sidebar ──────────────────────────────────────────────────────────────────
-
-const ROLE_BADGE = {
-  Admin:   'bg-amber-400/20 text-amber-300',
-  HR:      'bg-emerald-400/20 text-emerald-300',
-  Finance: 'bg-blue-300/20 text-blue-200',
-  Manager: 'bg-purple-400/20 text-purple-300',
+const ROLE_COLORS = {
+  Admin:   { bg: 'rgba(251,191,36,0.15)', text: '#fbbf24' },
+  HR:      { bg: 'rgba(52,211,153,0.15)', text: '#34d399' },
+  Finance: { bg: 'rgba(96,165,250,0.15)', text: '#60a5fa' },
+  Manager: { bg: 'rgba(167,139,250,0.15)', text: '#a78bfa' },
 }
 
 export default function Sidebar({ open, onClose }) {
@@ -115,11 +113,13 @@ export default function Sidebar({ open, onClose }) {
     navigate('/login', { replace: true })
   }
 
+  const roleStyle = ROLE_COLORS[roleLabel] ?? { bg: 'rgba(148,163,184,0.15)', text: '#94a3b8' }
+
   return (
     <>
-      {/* Mobile overlay — clicking it closes the sidebar */}
+      {/* Mobile overlay */}
       <div
-        className={`fixed inset-0 bg-black/50 z-20 lg:hidden transition-opacity duration-300
+        className={`fixed inset-0 bg-black/60 backdrop-blur-sm z-20 lg:hidden transition-opacity duration-300
           ${open ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
         onClick={onClose}
         aria-hidden="true"
@@ -127,26 +127,32 @@ export default function Sidebar({ open, onClose }) {
 
       {/* Sidebar panel */}
       <aside
-        className={`fixed inset-y-0 left-0 w-64 bg-[#1e3a8a] flex flex-col z-30 shadow-xl
+        className={`fixed inset-y-0 left-0 w-64 flex flex-col z-30 shadow-2xl
           transform transition-transform duration-300 ease-in-out
           ${open ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0`}
+        style={{ background: 'linear-gradient(180deg, #0f172a 0%, #0f1729 100%)' }}
       >
+        {/* Subtle top highlight */}
+        <div className="absolute inset-x-0 top-0 h-px"
+          style={{ background: 'linear-gradient(90deg, transparent, rgba(99,102,241,0.5), transparent)' }} />
 
         {/* Brand */}
-        <div className="h-16 flex items-center gap-3 px-5 border-b border-blue-800/70 shrink-0">
-          <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shrink-0">
-            <HeartHandshake size={16} className="text-[#1e3a8a]" strokeWidth={2} />
+        <div className="h-16 flex items-center gap-3 px-5 shrink-0"
+          style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+          <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
+            style={{ background: 'linear-gradient(135deg, #6366f1, #3b82f6)' }}>
+            <Sparkles size={14} className="text-white" strokeWidth={2} />
           </div>
           <div className="leading-tight">
-            <p className="text-white font-bold text-sm tracking-tight">VibeHR</p>
-            <p className="text-blue-300 text-[10px]">Better Culture, Better Work.</p>
+            <p className="text-white font-bold text-sm tracking-tight">WorkForce</p>
+            <p className="text-slate-500 text-[10px]">Employee Management</p>
           </div>
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5">
+        <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-0.5">
 
-          <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-blue-400/80">
+          <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-widest text-slate-600">
             Main
           </p>
 
@@ -154,9 +160,13 @@ export default function Sidebar({ open, onClose }) {
             <NavItem key={item.path} {...item} onNavClick={onClose} />
           ))}
 
-          <div className="py-1">
-            <div className="border-t border-blue-800/60" />
+          <div className="py-2">
+            <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }} />
           </div>
+
+          <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-widest text-slate-600">
+            Attendance
+          </p>
 
           <SectionDropdown
             title="Attendance"
@@ -168,9 +178,12 @@ export default function Sidebar({ open, onClose }) {
 
           {canAccessPayroll && (
             <>
-              <div className="py-1">
-                <div className="border-t border-blue-800/60" />
+              <div className="py-2">
+                <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }} />
               </div>
+              <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-widest text-slate-600">
+                Payroll
+              </p>
               <SectionDropdown
                 title="Payroll"
                 icon={Wallet}
@@ -183,25 +196,26 @@ export default function Sidebar({ open, onClose }) {
         </nav>
 
         {/* Footer */}
-        <div className="shrink-0 border-t border-blue-800/70">
+        <div className="shrink-0" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
 
-          {/* Settings + Sign Out */}
           <div className="px-3 pt-2 pb-2 space-y-0.5">
             {isAdmin && <NavItem path="/settings" icon={Settings} label="Settings" onNavClick={onClose} />}
             <button
               onClick={handleSignOut}
-              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium
-                text-blue-200 hover:bg-red-500/20 hover:text-red-300 transition-colors duration-150"
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium
+                text-slate-400 hover:bg-red-500/15 hover:text-red-400 transition-all duration-150"
             >
-              <LogOut size={16} strokeWidth={1.75} />
+              <LogOut size={15} strokeWidth={1.8} />
               Sign Out
             </button>
           </div>
 
-          {/* User profile card — pinned to bottom */}
-          <div className="px-3 pb-3 border-t border-blue-800/50 pt-2">
-            <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-white/5">
-              <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center shrink-0 text-xs font-extrabold text-white">
+          {/* User card */}
+          <div className="px-3 pb-4 pt-1">
+            <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl"
+              style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.07)' }}>
+              <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-extrabold text-white"
+                style={{ background: 'linear-gradient(135deg, #6366f1, #3b82f6)' }}>
                 {initials}
               </div>
               <div className="min-w-0 flex-1">
@@ -209,7 +223,8 @@ export default function Sidebar({ open, onClose }) {
                   {displayName}
                 </p>
                 {roleLabel && (
-                  <span className={`mt-0.5 inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${ROLE_BADGE[roleLabel] ?? 'bg-white/10 text-blue-200'}`}>
+                  <span className="mt-0.5 inline-block text-[10px] font-bold px-2 py-0.5 rounded-full"
+                    style={{ background: roleStyle.bg, color: roleStyle.text }}>
                     {roleLabel}
                   </span>
                 )}
@@ -217,7 +232,6 @@ export default function Sidebar({ open, onClose }) {
             </div>
           </div>
         </div>
-
       </aside>
     </>
   )
