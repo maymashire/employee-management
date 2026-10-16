@@ -518,7 +518,8 @@ export default function EmployeesPage() {
           { icon: UserCheck, label: 'Active',   value: activeCount,            color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-100' },
           { icon: UserX,     label: 'Inactive', value: inactiveCount,          color: 'text-amber-600',   bg: 'bg-amber-50',   border: 'border-amber-100' },
         ].map(({ icon: Icon, label, value, color, bg, border }) => (
-          <div key={label} className={`bg-white rounded-xl border ${border} p-4 flex items-center gap-3`}>
+          <div key={label} className={`bg-white rounded-xl border ${border} p-4 flex items-center gap-3 transition-all hover:-translate-y-0.5`}
+            style={{ boxShadow: '0 1px 5px rgba(0,0,0,0.05)' }}>
             <div className={`w-9 h-9 rounded-lg ${bg} flex items-center justify-center shrink-0`}>
               <Icon size={17} className={color} />
             </div>
@@ -531,7 +532,8 @@ export default function EmployeesPage() {
       </div>
 
       {/* ── Table ── */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-2xl overflow-hidden"
+        style={{ boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid rgba(0,0,0,0.06)' }}>
 
         {/* Toolbar */}
         <div className="flex items-center gap-3 px-4 py-3.5 border-b border-gray-100">

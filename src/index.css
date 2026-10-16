@@ -14,7 +14,8 @@
   }
 
   body {
-    @apply bg-slate-50 text-gray-900 antialiased;
+    background: #f0f4f8;
+    @apply text-gray-900 antialiased;
     font-family: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, sans-serif;
   }
 

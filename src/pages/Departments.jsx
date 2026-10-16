@@ -466,53 +466,77 @@ export default function DepartmentsPage() {
           <p className="text-sm font-medium">No departments yet. Click "New Department" to create the first one.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {departments.map((dept, idx) => {
             const count = empCounts[dept.id] ?? 0
             const pal   = palette(idx)
             return (
               <div key={dept.id}
                 onClick={() => { setViewDept(dept); setViewIdx(idx) }}
-                className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 hover:shadow-lg transition-all cursor-pointer group relative overflow-hidden">
+                className="bg-white rounded-2xl overflow-hidden cursor-pointer group transition-all duration-200 hover:-translate-y-1"
+                style={{ boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid rgba(0,0,0,0.06)' }}
+                onMouseEnter={e => e.currentTarget.style.boxShadow = '0 12px 32px rgba(0,0,0,0.12)'}
+                onMouseLeave={e => e.currentTarget.style.boxShadow = '0 1px 6px rgba(0,0,0,0.06)'}
+              >
+                {/* ── Hero gradient banner ── */}
+                <div className="relative h-[88px] flex items-end px-5 pb-0"
+                  style={{ background: pal.gradient }}>
 
-                {/* Top gradient accent bar */}
-                <div className="absolute inset-x-0 top-0 h-1 rounded-t-2xl"
-                  style={{ background: pal.gradient }} />
+                  {/* Subtle shine overlay */}
+                  <div className="absolute inset-0 opacity-20"
+                    style={{ background: 'radial-gradient(ellipse at 10% 20%, white 0%, transparent 55%)' }} />
 
-                <div className="flex items-start justify-between mb-4 pt-1">
-                  {/* Icon */}
-                  <div className="w-11 h-11 rounded-xl flex items-center justify-center"
-                    style={{ background: pal.gradient }}>
-                    <Building2 size={20} className="text-white" />
-                  </div>
-
-                  {/* Actions — show on hover */}
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                  {/* Hover actions — top right */}
+                  <div className="absolute top-3 right-3 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity z-10"
                     onClick={e => e.stopPropagation()}>
                     <button onClick={() => openEdit(dept)}
-                      className="p-1.5 rounded-lg text-gray-400 hover:bg-indigo-50 hover:text-indigo-700 transition-colors">
-                      <Pencil size={14} />
+                      className="w-7 h-7 rounded-lg flex items-center justify-center text-white transition-colors"
+                      style={{ background: 'rgba(255,255,255,0.22)', backdropFilter: 'blur(4px)' }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.38)'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.22)'}>
+                      <Pencil size={13} />
                     </button>
                     <button onClick={() => setDeleteTarget(dept)}
-                      className="p-1.5 rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-600 transition-colors">
-                      <Trash2 size={14} />
+                      className="w-7 h-7 rounded-lg flex items-center justify-center text-white transition-colors"
+                      style={{ background: 'rgba(255,255,255,0.22)', backdropFilter: 'blur(4px)' }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.7)'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.22)'}>
+                      <Trash2 size={13} />
                     </button>
+                  </div>
+
+                  {/* Icon — overlaps hero/body boundary */}
+                  <div className="relative z-10 w-12 h-12 rounded-xl bg-white flex items-center justify-center shadow-lg translate-y-6"
+                    style={{ boxShadow: '0 4px 14px rgba(0,0,0,0.18)' }}>
+                    <Building2 size={22} className={pal.iconText} />
                   </div>
                 </div>
 
-                <h3 className="font-extrabold text-gray-900 text-base leading-tight">{dept.name}</h3>
-                <p className="text-xs text-gray-400 mt-1 line-clamp-2 min-h-[32px] leading-relaxed">
-                  {dept.description ?? 'No description.'}
-                </p>
+                {/* ── Card body ── */}
+                <div className="pt-9 px-5 pb-5">
+                  <h3 className="font-extrabold text-gray-900 text-[15px] leading-tight tracking-tight">
+                    {dept.name}
+                  </h3>
+                  <p className="text-[13px] text-gray-400 mt-1.5 leading-relaxed line-clamp-2 min-h-[38px]">
+                    {dept.description ?? 'No description provided.'}
+                  </p>
 
-                <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
-                  <span className="flex items-center gap-1.5 text-sm font-semibold text-gray-600">
-                    <Users size={14} className="text-gray-400" />
-                    {count} employee{count !== 1 ? 's' : ''}
-                  </span>
-                  <span className="flex items-center gap-0.5 text-xs font-semibold text-indigo-500 group-hover:gap-1 transition-all">
-                    View team <ChevronRight size={13} />
-                  </span>
+                  <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <div className={`w-6 h-6 rounded-md ${pal.icon} flex items-center justify-center`}>
+                        <Users size={12} className={pal.iconText} />
+                      </div>
+                      <span className="text-sm font-bold text-gray-700">
+                        {count}
+                      </span>
+                      <span className="text-sm text-gray-400">
+                        {count === 1 ? 'member' : 'members'}
+                      </span>
+                    </div>
+                    <span className="flex items-center gap-0.5 text-xs font-bold text-indigo-500 opacity-0 group-hover:opacity-100 group-hover:gap-1.5 transition-all">
+                      View team <ChevronRight size={12} />
+                    </span>
+                  </div>
                 </div>
               </div>
             )

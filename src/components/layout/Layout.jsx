@@ -7,7 +7,7 @@ export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   return (
-    <div className="min-h-screen" style={{ background: '#f8f9fc' }}>
+    <div className="min-h-screen" style={{ background: '#f0f4f8' }}>
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
       {/* Desktop: offset for fixed 256px sidebar; mobile: full-width */}

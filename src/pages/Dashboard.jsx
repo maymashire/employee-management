@@ -37,21 +37,29 @@ function greeting() {
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
-function StatCard({ label, value, sub, icon: Icon, gradient, glowColor }) {
+const STAT_COLORS = {
+  indigo:  { ring: '#e0e7ff', iconBg: '#eef2ff', iconColor: '#4f46e5', numColor: '#1e1b4b' },
+  cyan:    { ring: '#cffafe', iconBg: '#ecfeff', iconColor: '#0891b2', numColor: '#0c4a6e' },
+  amber:   { ring: '#fde68a', iconBg: '#fffbeb', iconColor: '#d97706', numColor: '#78350f' },
+  emerald: { ring: '#a7f3d0', iconBg: '#f0fdf4', iconColor: '#059669', numColor: '#14532d' },
+}
+
+function StatCard({ label, value, sub, icon: Icon, color = 'indigo' }) {
+  const c = STAT_COLORS[color]
   return (
-    <div className="rounded-xl p-4 relative overflow-hidden"
-      style={{ background: gradient, boxShadow: `0 4px 20px ${glowColor}` }}>
-      <div className="absolute inset-x-0 top-0 h-px opacity-30"
-        style={{ background: 'linear-gradient(90deg, transparent, white, transparent)' }} />
-      <div className="flex items-center justify-between">
-        <div className="min-w-0 flex-1">
-          <p className="text-xs text-white/70 font-semibold uppercase tracking-wider">{label}</p>
-          <p className="text-2xl font-extrabold text-white mt-1 tracking-tight leading-none">{value}</p>
-          {sub && <p className="text-[11px] text-white/55 mt-1.5 truncate">{sub}</p>}
-        </div>
-        <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-white/15 ml-3">
-          <Icon size={18} className="text-white" />
-        </div>
+    <div className="bg-white rounded-2xl p-5 flex items-center gap-4 transition-all duration-200 hover:-translate-y-0.5"
+      style={{ boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: `1px solid ${c.ring}` }}
+      onMouseEnter={e => e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.1)'}
+      onMouseLeave={e => e.currentTarget.style.boxShadow = '0 1px 6px rgba(0,0,0,0.06)'}
+    >
+      <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
+        style={{ background: c.iconBg }}>
+        <Icon size={22} style={{ color: c.iconColor }} />
+      </div>
+      <div className="min-w-0">
+        <p className="text-xs font-bold uppercase tracking-widest text-gray-400">{label}</p>
+        <p className="text-3xl font-extrabold tracking-tight leading-none mt-0.5" style={{ color: c.numColor }}>{value}</p>
+        {sub && <p className="text-xs text-gray-400 mt-1 truncate">{sub}</p>}
       </div>
     </div>
   )
@@ -183,80 +191,53 @@ export default function Dashboard() {
     <div className="space-y-5 fade-in">
 
       {/* ── Welcome Banner ── */}
-      <div className="relative rounded-2xl overflow-hidden"
-        style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #1e3a8a 100%)' }}>
-        {/* Glow blobs */}
-        <div className="absolute top-[-40px] right-[-40px] w-48 h-48 rounded-full opacity-20"
-          style={{ background: 'radial-gradient(circle, #6366f1, transparent)' }} />
-        <div className="absolute bottom-[-20px] left-[30%] w-32 h-32 rounded-full opacity-10"
-          style={{ background: 'radial-gradient(circle, #3b82f6, transparent)' }} />
-
-        <div className="relative z-10 px-5 py-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div className="bg-white rounded-2xl px-6 py-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
+        style={{ boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid rgba(0,0,0,0.06)' }}>
+        <div className="flex items-center gap-4">
+          {/* Accent stripe */}
+          <div className="w-1 h-12 rounded-full shrink-0"
+            style={{ background: 'linear-gradient(180deg,#4f46e5,#3b82f6)' }} />
           <div>
-            <p className="text-indigo-300 text-xs font-semibold uppercase tracking-wider mb-0.5">{greeting()}</p>
-            <h2 className="text-xl font-extrabold text-white tracking-tight">
+            <p className="text-xs font-bold text-indigo-500 uppercase tracking-widest">{greeting()}</p>
+            <h2 className="text-xl font-extrabold text-gray-900 tracking-tight mt-0.5">
               {firstName} 👋
             </h2>
-            <p className="text-indigo-200/55 text-xs mt-1">
-              Here's what's happening across your workforce today.
+            <p className="text-sm text-gray-400 mt-0.5">
+              Here's your workforce overview for today.
             </p>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <div className="px-4 py-2 rounded-xl text-center"
-              style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.1)' }}>
-              <p className="text-white font-extrabold text-xl">{loading ? '…' : attendancePct}<span className="text-sm text-indigo-300">%</span></p>
-              <p className="text-indigo-300 text-xs">Present today</p>
-            </div>
-            <div className="px-4 py-2 rounded-xl text-center"
-              style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.1)' }}>
-              <p className="text-white font-extrabold text-xl">{loading ? '…' : stats.total}</p>
-              <p className="text-indigo-300 text-xs">Total staff</p>
-            </div>
+        </div>
+
+        <div className="flex items-center gap-3 shrink-0">
+          <div className="text-center px-5 py-3 rounded-xl bg-indigo-50 border border-indigo-100">
+            <p className="text-2xl font-extrabold text-indigo-700 leading-none">
+              {loading ? '—' : `${attendancePct}%`}
+            </p>
+            <p className="text-[11px] font-semibold text-indigo-400 mt-1">Present today</p>
+          </div>
+          <div className="text-center px-5 py-3 rounded-xl border border-gray-100 bg-gray-50">
+            <p className="text-2xl font-extrabold text-gray-900 leading-none">
+              {loading ? '—' : stats.total}
+            </p>
+            <p className="text-[11px] font-semibold text-gray-400 mt-1">Total staff</p>
           </div>
         </div>
       </div>
 
       {/* ── Stat Cards ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          label="Total Employees"
-          value={loading ? '…' : stats.total}
-          sub="Active headcount"
-          icon={Users}
-          gradient="linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)"
-          glowColor="rgba(79,70,229,0.25)"
-        />
-        <StatCard
-          label="Departments"
-          value={loading ? '…' : stats.departments}
-          sub="Across the company"
-          icon={Building2}
-          gradient="linear-gradient(135deg, #0891b2 0%, #06b6d4 100%)"
-          glowColor="rgba(8,145,178,0.25)"
-        />
-        <StatCard
-          label="Present Today"
-          value={loading ? '…' : stats.presentToday}
-          sub={`of ${stats.total} employees`}
-          icon={Clock}
-          gradient="linear-gradient(135deg, #d97706 0%, #f59e0b 100%)"
-          glowColor="rgba(217,119,6,0.25)"
-        />
-        <StatCard
-          label="Monthly Payroll"
-          value={loading ? '…' : fmtCurrency(stats.monthlyPayroll)}
-          sub="Paid this month"
-          icon={DollarSign}
-          gradient="linear-gradient(135deg, #059669 0%, #10b981 100%)"
-          glowColor="rgba(5,150,105,0.25)"
-        />
+        <StatCard label="Total Employees" value={loading ? '—' : stats.total}         sub="Active headcount"       icon={Users}      color="indigo" />
+        <StatCard label="Departments"      value={loading ? '—' : stats.departments}   sub="Across the company"    icon={Building2}  color="cyan" />
+        <StatCard label="Present Today"    value={loading ? '—' : stats.presentToday}  sub={`of ${stats.total} employees`} icon={Clock} color="amber" />
+        <StatCard label="Monthly Payroll"  value={loading ? '—' : fmtCurrency(stats.monthlyPayroll)} sub="Paid this month" icon={DollarSign} color="emerald" />
       </div>
 
       {/* ── Charts Row ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
         {/* Area chart */}
-        <div className="lg:col-span-2 bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+        <div className="lg:col-span-2 bg-white rounded-2xl p-5 border border-gray-100/80"
+          style={{ boxShadow: '0 1px 6px rgba(0,0,0,0.06)' }}>
           <SectionHeader title="Headcount Growth" />
           {loading ? (
             <div className="h-56"><Skeleton /></div>
@@ -285,7 +266,8 @@ export default function Dashboard() {
         </div>
 
         {/* Pie chart */}
-        <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+        <div className="bg-white rounded-2xl p-5 border border-gray-100/80"
+          style={{ boxShadow: '0 1px 6px rgba(0,0,0,0.06)' }}>
           <SectionHeader title="By Department" />
           {loading ? (
             <div className="h-56"><Skeleton /></div>
@@ -315,7 +297,8 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
         {/* Recent Employees */}
-        <div className="lg:col-span-2 bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+        <div className="lg:col-span-2 bg-white rounded-2xl p-5 border border-gray-100/80"
+          style={{ boxShadow: '0 1px 6px rgba(0,0,0,0.06)' }}>
           <SectionHeader title="Recently Hired" linkTo="/employees" />
           {loading ? (
             <div className="h-44"><Skeleton /></div>
@@ -355,7 +338,8 @@ export default function Dashboard() {
         </div>
 
         {/* Today's Attendance */}
-        <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+        <div className="bg-white rounded-2xl p-5 border border-gray-100/80"
+          style={{ boxShadow: '0 1px 6px rgba(0,0,0,0.06)' }}>
           <SectionHeader title="Today's Attendance" linkTo="/attendance/daily" />
           {loading ? (
             <div className="h-44"><Skeleton /></div>
