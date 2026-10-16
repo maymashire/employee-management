@@ -155,9 +155,10 @@ function ViewDrawer({ emp, onClose, onEdit }) {
       >
         {/* Modal — stops propagation so clicking inside doesn't close */}
         <div
-          className="bg-white rounded-2xl w-full flex flex-col shadow-2xl"
+          className="bg-white rounded-2xl flex flex-col shadow-2xl mx-auto"
           style={{
-            maxWidth: 520,
+            width: '100%',
+            maxWidth: '520px',
             maxHeight: '88vh',
             animation: 'empModalIn .2s cubic-bezier(.4,0,.2,1) forwards',
           }}

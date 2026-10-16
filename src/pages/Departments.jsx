@@ -102,10 +102,11 @@ function DeptDrawer({ dept, employees, paletteIdx, onClose, onEdit }) {
       >
         {/* Modal */}
         <div
-          className="bg-white rounded-2xl w-full flex flex-col shadow-2xl"
+          className="bg-white rounded-2xl flex flex-col shadow-2xl mx-auto"
           style={{
-            maxWidth: 620,
-            maxHeight: '90vh',
+            width: '100%',
+            maxWidth: '520px',
+            maxHeight: '88vh',
             animation: 'deptModalIn .2s cubic-bezier(.4,0,.2,1) forwards',
           }}
           onClick={e => e.stopPropagation()}
