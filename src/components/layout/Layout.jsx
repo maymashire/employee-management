@@ -15,8 +15,10 @@ export default function Layout() {
         <Header onMenuToggle={() => setSidebarOpen(o => !o)} />
 
         {/* Offset for fixed header; smaller padding on mobile */}
-        <main className="mt-16 flex-1 p-3 sm:p-4 lg:p-6">
-          <Outlet />
+        <main className="mt-16 flex-1 p-3 sm:p-5 lg:p-7">
+          <div className="max-w-[1400px] mx-auto w-full">
+            <Outlet />
+          </div>
         </main>
       </div>
     </div>

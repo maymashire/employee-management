@@ -82,48 +82,45 @@ function DeptDrawer({ dept, employees, paletteIdx, onClose, onEdit }) {
   return (
     <>
       {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/50 z-40 lg:bg-black/30"
+      <div className="fixed inset-0 bg-black/30 z-40"
         onClick={onClose} />
 
       {/* Drawer panel */}
-      <div className="fixed inset-y-0 right-0 w-full max-w-md bg-white z-50 shadow-2xl flex flex-col fade-in"
-        style={{ animation: 'slideIn 0.25s ease forwards' }}>
+      <div className="fixed inset-y-0 right-0 w-full max-w-[540px] bg-white z-50 shadow-2xl flex flex-col"
+        style={{ animation: 'slideIn 0.22s cubic-bezier(.4,0,.2,1) forwards' }}>
 
         {/* Header */}
-        <div className="relative px-6 pt-8 pb-6 shrink-0"
+        <div className="relative px-5 pt-5 pb-5 shrink-0"
           style={{ background: 'linear-gradient(135deg,#0f172a 0%,#1e1b4b 60%,#1e3a8a 100%)' }}>
-          <button onClick={onClose}
-            className="absolute top-4 right-4 w-8 h-8 rounded-xl flex items-center justify-center text-white/50 hover:text-white hover:bg-white/10 transition-colors">
-            <X size={16} />
-          </button>
-
-          <div className="w-12 h-12 rounded-2xl flex items-center justify-center mb-4"
-            style={{ background: pal.gradient }}>
-            <Building2 size={22} className="text-white" />
+          <div className="flex items-start justify-between mb-4">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center"
+              style={{ background: pal.gradient }}>
+              <Building2 size={18} className="text-white" />
+            </div>
+            <button onClick={onClose}
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-white/50 hover:text-white hover:bg-white/10 transition-colors">
+              <X size={15} />
+            </button>
           </div>
 
-          <h2 className="text-xl font-extrabold text-white">{dept.name}</h2>
-          <p className="text-indigo-200/70 text-sm mt-1 leading-relaxed">
+          <h2 className="text-lg font-extrabold text-white leading-tight">{dept.name}</h2>
+          <p className="text-indigo-200/60 text-xs mt-1 leading-relaxed line-clamp-2">
             {dept.description || 'No description provided.'}
           </p>
 
           {/* Stats row */}
-          <div className="flex gap-3 mt-4">
-            <div className="px-3 py-2 rounded-xl text-center"
-              style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.1)' }}>
-              <p className="text-white font-extrabold text-lg leading-none">{members.length}</p>
-              <p className="text-indigo-300 text-xs mt-0.5">Total</p>
-            </div>
-            <div className="px-3 py-2 rounded-xl text-center"
-              style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.1)' }}>
-              <p className="text-emerald-400 font-extrabold text-lg leading-none">{active}</p>
-              <p className="text-indigo-300 text-xs mt-0.5">Active</p>
-            </div>
-            <div className="px-3 py-2 rounded-xl text-center"
-              style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.1)' }}>
-              <p className="text-amber-400 font-extrabold text-lg leading-none">{members.length - active}</p>
-              <p className="text-indigo-300 text-xs mt-0.5">Inactive</p>
-            </div>
+          <div className="flex gap-2 mt-4">
+            {[
+              { label: 'Total',    value: members.length,            valueClass: 'text-white' },
+              { label: 'Active',   value: active,                    valueClass: 'text-emerald-400' },
+              { label: 'Inactive', value: members.length - active,   valueClass: 'text-amber-400' },
+            ].map(({ label, value, valueClass }) => (
+              <div key={label} className="flex-1 px-3 py-2 rounded-xl text-center"
+                style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                <p className={`font-extrabold text-base leading-none ${valueClass}`}>{value}</p>
+                <p className="text-indigo-300/80 text-[10px] mt-0.5 font-medium">{label}</p>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -401,7 +398,7 @@ export default function DepartmentsPage() {
       {/* Page header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-extrabold text-gray-900 tracking-tight">Departments</h2>
+          <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Departments</h2>
           <p className="text-sm text-gray-400 mt-0.5">
             {departments.length} department{departments.length !== 1 ? 's' : ''} · {totalEmployees} total employees
           </p>

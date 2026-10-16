@@ -133,8 +133,8 @@ function ViewDrawer({ emp, onClose, onEdit }) {
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/40 z-40" onClick={onClose} />
-      <div className="fixed inset-y-0 right-0 w-full max-w-sm bg-white z-50 shadow-2xl flex flex-col"
+      <div className="fixed inset-0 bg-black/25 z-40" onClick={onClose} />
+      <div className="fixed inset-y-0 right-0 w-full max-w-[460px] bg-white z-50 shadow-2xl flex flex-col"
         style={{ animation: 'slideRight .22s cubic-bezier(.4,0,.2,1) forwards' }}>
 
         {/* Top bar */}
