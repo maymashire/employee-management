@@ -39,23 +39,18 @@ function greeting() {
 
 function StatCard({ label, value, sub, icon: Icon, gradient, glowColor }) {
   return (
-    <div className="rounded-2xl p-5 relative overflow-hidden"
-      style={{
-        background: gradient,
-        boxShadow: `0 8px 32px ${glowColor}`,
-      }}>
-      {/* Subtle inner highlight */}
-      <div className="absolute inset-x-0 top-0 h-px opacity-40"
+    <div className="rounded-xl p-4 relative overflow-hidden"
+      style={{ background: gradient, boxShadow: `0 4px 20px ${glowColor}` }}>
+      <div className="absolute inset-x-0 top-0 h-px opacity-30"
         style={{ background: 'linear-gradient(90deg, transparent, white, transparent)' }} />
-
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-sm text-white/70 font-medium">{label}</p>
-          <p className="text-3xl font-extrabold text-white mt-1 tracking-tight">{value}</p>
-          {sub && <p className="text-xs text-white/60 mt-1">{sub}</p>}
+      <div className="flex items-center justify-between">
+        <div className="min-w-0 flex-1">
+          <p className="text-xs text-white/70 font-semibold uppercase tracking-wider">{label}</p>
+          <p className="text-2xl font-extrabold text-white mt-1 tracking-tight leading-none">{value}</p>
+          {sub && <p className="text-[11px] text-white/55 mt-1.5 truncate">{sub}</p>}
         </div>
-        <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 bg-white/15">
-          <Icon size={20} className="text-white" />
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-white/15 ml-3">
+          <Icon size={18} className="text-white" />
         </div>
       </div>
     </div>
@@ -196,13 +191,13 @@ export default function Dashboard() {
         <div className="absolute bottom-[-20px] left-[30%] w-32 h-32 rounded-full opacity-10"
           style={{ background: 'radial-gradient(circle, #3b82f6, transparent)' }} />
 
-        <div className="relative z-10 px-6 py-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="relative z-10 px-5 py-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
-            <p className="text-indigo-300 text-sm font-medium mb-1">{greeting()},</p>
-            <h2 className="text-2xl font-extrabold text-white tracking-tight">
+            <p className="text-indigo-300 text-xs font-semibold uppercase tracking-wider mb-0.5">{greeting()}</p>
+            <h2 className="text-xl font-extrabold text-white tracking-tight">
               {firstName} 👋
             </h2>
-            <p className="text-indigo-200/60 text-sm mt-1">
+            <p className="text-indigo-200/55 text-xs mt-1">
               Here's what's happening across your workforce today.
             </p>
           </div>
