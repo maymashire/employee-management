@@ -94,154 +94,144 @@ function DeptDrawer({ dept, employees, paletteIdx, onClose, onEdit }) {
 
   return (
     <>
-      <div className="fixed top-16 left-0 lg:left-64 right-0 bottom-0 bg-black/25 z-40" onClick={onClose} />
-
+      {/* Full-viewport overlay — click outside to close */}
       <div
-        className="fixed top-16 bottom-0 right-0 z-50 flex flex-col bg-white shadow-2xl border-l border-gray-100"
-        style={{ width: 'min(520px, 100vw)', animation: 'slideIn 0.22s cubic-bezier(.4,0,.2,1) forwards' }}
+        className="fixed inset-0 z-50 flex items-center justify-center p-4"
+        style={{ background: 'rgba(15,23,42,0.5)', backdropFilter: 'blur(3px)' }}
+        onClick={onClose}
       >
-        {/* ── Pinned top bar ── */}
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-100 shrink-0">
-          <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Department Details</p>
-          <button onClick={onClose}
-            className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400 hover:text-gray-700 transition-colors">
-            <X size={15} />
-          </button>
-        </div>
+        {/* Modal */}
+        <div
+          className="bg-white rounded-2xl w-full flex flex-col shadow-2xl"
+          style={{
+            maxWidth: 620,
+            maxHeight: '90vh',
+            animation: 'deptModalIn .2s cubic-bezier(.4,0,.2,1) forwards',
+          }}
+          onClick={e => e.stopPropagation()}
+        >
+          {/* ── Header ── */}
+          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
+            <p className="text-xs font-extrabold text-gray-400 uppercase tracking-widest">Department Details</p>
+            <button onClick={onClose}
+              className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400 hover:text-gray-700 transition-colors">
+              <X size={15} />
+            </button>
+          </div>
 
-        {/* ── Scrollable body ── */}
-        <div className="flex-1 min-h-0 overflow-y-auto">
+          {/* ── Scrollable body ── */}
+          <div className="flex-1 min-h-0 overflow-y-auto">
 
-          {/* Department profile card */}
-          <div className="px-6 pt-6 pb-5 border-b border-gray-100">
-            {/* Accent bar + icon */}
-            <div className="flex flex-col items-center text-center mb-5">
-              <div className="w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg mb-4"
+            {/* Department profile — centered */}
+            <div className="px-6 pt-6 pb-5 border-b border-gray-100 text-center">
+              <div className="w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg mx-auto mb-4"
                 style={{ background: pal.gradient }}>
                 <Building2 size={28} className="text-white" />
               </div>
               <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">{dept.name}</h2>
-              <p className="text-sm text-gray-400 mt-1.5 leading-relaxed max-w-xs">
+              <p className="text-sm text-gray-400 mt-1.5 leading-relaxed max-w-sm mx-auto">
                 {dept.description || 'No description provided.'}
               </p>
+
+              {/* Stats */}
+              <div className="grid grid-cols-3 gap-3 mt-5">
+                {[
+                  { label: 'Total',    value: members.length, bg: 'bg-slate-50',   border: 'border-slate-100',   num: 'text-gray-900',    sub: 'text-slate-400' },
+                  { label: 'Active',   value: active,         bg: 'bg-emerald-50', border: 'border-emerald-100', num: 'text-emerald-700', sub: 'text-emerald-400' },
+                  { label: 'Inactive', value: inactive,       bg: 'bg-amber-50',   border: 'border-amber-100',   num: 'text-amber-700',   sub: 'text-amber-400' },
+                ].map(({ label, value, bg, border, num, sub }) => (
+                  <div key={label} className={`${bg} border ${border} rounded-xl py-3`}>
+                    <p className={`text-2xl font-extrabold ${num} leading-none`}>{value}</p>
+                    <p className={`text-[11px] font-semibold ${sub} mt-1`}>{label}</p>
+                  </div>
+                ))}
+              </div>
             </div>
 
-            {/* Stats — 3 tiles */}
-            <div className="grid grid-cols-3 gap-3">
-              {[
-                { label: 'Total',    value: members.length, bg: 'bg-slate-50',   border: 'border-slate-100',   num: 'text-gray-900',    sub: 'text-slate-400' },
-                { label: 'Active',   value: active,         bg: 'bg-emerald-50', border: 'border-emerald-100', num: 'text-emerald-700', sub: 'text-emerald-400' },
-                { label: 'Inactive', value: inactive,       bg: 'bg-amber-50',   border: 'border-amber-100',   num: 'text-amber-700',   sub: 'text-amber-400' },
-              ].map(({ label, value, bg, border, num, sub }) => (
-                <div key={label} className={`${bg} border ${border} rounded-xl py-3 text-center`}>
-                  <p className={`text-2xl font-extrabold ${num} leading-none`}>{value}</p>
-                  <p className={`text-[11px] font-semibold ${sub} mt-1`}>{label}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Team members section */}
-          <div className="px-6 py-5">
-            <div className="flex items-center justify-between mb-4">
-              <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+            {/* Team members */}
+            <div className="px-6 py-5">
+              <p className="text-xs font-extrabold text-gray-400 uppercase tracking-widest mb-4">
                 Team Members
                 <span className="ml-2 inline-flex items-center justify-center w-5 h-5 rounded-full bg-gray-100 text-gray-500 text-[10px] font-bold">{members.length}</span>
               </p>
-            </div>
 
-            {members.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 gap-3">
-                <div className="w-14 h-14 rounded-full bg-gray-50 flex items-center justify-center">
-                  <Users size={24} className="text-gray-300" />
+              {members.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-10 gap-3">
+                  <div className="w-12 h-12 rounded-full bg-gray-50 flex items-center justify-center">
+                    <Users size={22} className="text-gray-300" />
+                  </div>
+                  <p className="text-sm text-gray-400">No team members yet.</p>
                 </div>
-                <p className="text-sm font-semibold text-gray-400">No team members yet</p>
-                <p className="text-xs text-gray-300">Assign employees to this department.</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {members.map(emp => {
-                  const ini        = `${emp.first_name?.[0] ?? ''}${emp.last_name?.[0] ?? ''}`.toUpperCase()
-                  const statusMeta = STATUS_META[emp.status] ?? STATUS_META.inactive
-                  return (
-                    <div key={emp.id}
-                      className="bg-gray-50/60 border border-gray-100 rounded-xl p-4 hover:bg-indigo-50/30 hover:border-indigo-100 transition-all">
-
-                      {/* Member header */}
-                      <div className="flex items-center gap-3 mb-3">
-                        <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-extrabold shrink-0"
-                          style={{ background: avatarGrad(emp.id) }}>
-                          {ini}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className="font-bold text-gray-900 text-sm truncate">
-                              {emp.first_name} {emp.last_name}
+              ) : (
+                <div className="space-y-3">
+                  {members.map(emp => {
+                    const ini        = `${emp.first_name?.[0] ?? ''}${emp.last_name?.[0] ?? ''}`.toUpperCase()
+                    const statusMeta = STATUS_META[emp.status] ?? STATUS_META.inactive
+                    return (
+                      <div key={emp.id}
+                        className="bg-gray-50/60 border border-gray-100 rounded-xl p-4 hover:bg-indigo-50/30 hover:border-indigo-100 transition-all">
+                        <div className="flex items-start gap-3">
+                          <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-extrabold shrink-0"
+                            style={{ background: avatarGrad(emp.id) }}>
+                            {ini}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="font-bold text-gray-900 text-sm">{emp.first_name} {emp.last_name}</p>
+                              <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${statusMeta.cls}`}>
+                                {statusMeta.label}
+                              </span>
+                            </div>
+                            <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
+                              <Briefcase size={10} className="shrink-0 text-gray-400" />
+                              {emp.job_title || 'No title'}
                             </p>
-                            <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${statusMeta.cls}`}>
-                              {statusMeta.label}
-                            </span>
+                            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+                              {emp.email && (
+                                <p className="text-xs text-gray-400 flex items-center gap-1.5">
+                                  <Mail size={10} className="text-gray-300 shrink-0" />{emp.email}
+                                </p>
+                              )}
+                              {emp.phone_number && (
+                                <p className="text-xs text-gray-400 flex items-center gap-1.5">
+                                  <Phone size={10} className="text-gray-300 shrink-0" />{emp.phone_number}
+                                </p>
+                              )}
+                              {emp.hire_date && (
+                                <p className="text-xs text-gray-400 flex items-center gap-1.5">
+                                  <Calendar size={10} className="text-gray-300 shrink-0" />Joined {fmtDate(emp.hire_date)}
+                                </p>
+                              )}
+                            </div>
                           </div>
-                          <p className="text-xs text-gray-500 mt-0.5 truncate flex items-center gap-1">
-                            <Briefcase size={10} className="shrink-0 text-gray-400" />
-                            {emp.job_title || 'No title'}
-                          </p>
                         </div>
                       </div>
-
-                      {/* Member details grid */}
-                      <div className="grid grid-cols-1 gap-1.5 pl-[52px]">
-                        {emp.email && (
-                          <div className="flex items-center gap-2">
-                            <div className="w-5 h-5 rounded-md bg-white border border-gray-100 flex items-center justify-center shrink-0">
-                              <Mail size={10} className="text-gray-400" />
-                            </div>
-                            <p className="text-xs text-gray-500 truncate">{emp.email}</p>
-                          </div>
-                        )}
-                        {emp.phone_number && (
-                          <div className="flex items-center gap-2">
-                            <div className="w-5 h-5 rounded-md bg-white border border-gray-100 flex items-center justify-center shrink-0">
-                              <Phone size={10} className="text-gray-400" />
-                            </div>
-                            <p className="text-xs text-gray-500">{emp.phone_number}</p>
-                          </div>
-                        )}
-                        {emp.hire_date && (
-                          <div className="flex items-center gap-2">
-                            <div className="w-5 h-5 rounded-md bg-white border border-gray-100 flex items-center justify-center shrink-0">
-                              <Calendar size={10} className="text-gray-400" />
-                            </div>
-                            <p className="text-xs text-gray-500">Joined {fmtDate(emp.hire_date)}</p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
+                    )
+                  })}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
 
-        {/* ── Pinned footer ── */}
-        <div className="px-5 py-4 border-t border-gray-100 shrink-0 flex gap-3 bg-white">
-          <button onClick={onClose}
-            className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors whitespace-nowrap">
-            Close
-          </button>
-          <button onClick={onEdit}
-            className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-white text-sm font-bold transition-all whitespace-nowrap"
-            style={{ background: 'linear-gradient(135deg,#4f46e5,#3b82f6)', boxShadow: '0 3px 12px rgba(79,70,229,0.25)' }}>
-            <Pencil size={13} /> Edit Department
-          </button>
+          {/* ── Footer ── */}
+          <div className="px-6 py-4 border-t border-gray-100 shrink-0 flex gap-3">
+            <button onClick={onClose}
+              className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors">
+              Close
+            </button>
+            <button onClick={onEdit}
+              className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-white text-sm font-bold"
+              style={{ background: 'linear-gradient(135deg,#4f46e5,#3b82f6)', boxShadow: '0 4px 14px rgba(79,70,229,0.3)' }}>
+              <Pencil size={13} /> Edit Department
+            </button>
+          </div>
         </div>
       </div>
 
       <style>{`
-        @keyframes slideIn {
-          from { transform: translateX(100%); opacity: 0; }
-          to   { transform: translateX(0);    opacity: 1; }
+        @keyframes deptModalIn {
+          from { opacity: 0; transform: scale(0.96) translateY(10px); }
+          to   { opacity: 1; transform: scale(1)    translateY(0); }
         }
       `}</style>
     </>

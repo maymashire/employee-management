@@ -147,97 +147,91 @@ function ViewDrawer({ emp, onClose, onEdit }) {
 
   return (
     <>
-      {/*
-        Backdrop: starts below the fixed header (top-16 = 64px) and to the right
-        of the sidebar on desktop (lg:left-64). z-40 sits above the sidebar (z-30)
-        but below the drawer (z-50).
-      */}
+      {/* Full-viewport overlay — click outside to close */}
       <div
-        className="fixed top-16 left-0 lg:left-64 right-0 bottom-0 bg-black/25 z-40"
+        className="fixed inset-0 z-50 flex items-center justify-center p-4"
+        style={{ background: 'rgba(15,23,42,0.5)', backdropFilter: 'blur(3px)' }}
         onClick={onClose}
-      />
-
-      {/*
-        Drawer: starts at top-16 (below the 64px fixed header) so the app header
-        remains fully visible. Uses flex-col so header/footer stay pinned while the
-        middle section scrolls independently.
-      */}
-      <div
-        className="fixed top-16 bottom-0 right-0 z-50 flex flex-col bg-white shadow-2xl"
-        style={{
-          width: 'min(460px, 100vw)',
-          animation: 'slideRight .22s cubic-bezier(.4,0,.2,1) forwards',
-        }}
       >
-        {/* ── Pinned header ── */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
-          <p className="text-sm font-bold text-gray-500 uppercase tracking-wider">Employee Profile</p>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400 hover:text-gray-700 transition-colors"
-          >
-            <X size={16} />
-          </button>
-        </div>
+        {/* Modal — stops propagation so clicking inside doesn't close */}
+        <div
+          className="bg-white rounded-2xl w-full flex flex-col shadow-2xl"
+          style={{
+            maxWidth: 520,
+            maxHeight: '88vh',
+            animation: 'empModalIn .2s cubic-bezier(.4,0,.2,1) forwards',
+          }}
+          onClick={e => e.stopPropagation()}
+        >
+          {/* ── Header ── */}
+          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
+            <p className="text-xs font-extrabold text-gray-400 uppercase tracking-widest">Employee Profile</p>
+            <button onClick={onClose}
+              className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400 hover:text-gray-700 transition-colors">
+              <X size={16} />
+            </button>
+          </div>
 
-        {/* ── Scrollable body ── */}
-        <div className="flex-1 min-h-0 overflow-y-auto">
+          {/* ── Scrollable body ── */}
+          <div className="flex-1 min-h-0 overflow-y-auto">
 
-          {/* Profile summary */}
-          <div className="px-5 py-5 border-b border-gray-100">
-            <div className="flex items-center gap-4">
-              <EmpAvatar emp={emp} size={14} />
-              <div className="min-w-0 flex-1">
-                <p className="font-extrabold text-gray-900 text-lg leading-tight truncate">
-                  {emp.first_name} {emp.last_name}
-                </p>
-                <p className="text-gray-500 text-sm truncate mt-0.5">{emp.job_title || 'No title'}</p>
-                <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-                  {statusMeta && (
-                    <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-bold ${statusMeta.cls}`}>
-                      {statusMeta.label}
-                    </span>
-                  )}
-                  {roleMeta && (
-                    <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-bold ${roleMeta.cls}`}>
-                      {roleMeta.label}
-                    </span>
-                  )}
+            {/* Profile summary */}
+            <div className="px-6 py-5 border-b border-gray-100">
+              <div className="flex items-center gap-4">
+                <EmpAvatar emp={emp} size={16} />
+                <div className="min-w-0 flex-1">
+                  <p className="font-extrabold text-gray-900 text-xl leading-tight">
+                    {emp.first_name} {emp.last_name}
+                  </p>
+                  <p className="text-gray-400 text-sm mt-0.5 truncate">{emp.job_title || 'No title'}</p>
+                  <div className="flex items-center gap-1.5 mt-2.5 flex-wrap">
+                    {statusMeta && (
+                      <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-bold ${statusMeta.cls}`}>
+                        {statusMeta.label}
+                      </span>
+                    )}
+                    {roleMeta && (
+                      <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-bold ${roleMeta.cls}`}>
+                        {roleMeta.label}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
+
+            {/* Info grid — 2 columns on wider screens */}
+            <div className="px-6 py-4 grid grid-cols-1 sm:grid-cols-2 gap-1">
+              <Row icon={Hash}      label="Employee ID" value={`#${shortId}`} />
+              <Row icon={Building2} label="Department"  value={emp.departments?.name} />
+              <Row icon={Mail}      label="Email"       value={emp.email} />
+              <Row icon={Phone}     label="Phone"       value={emp.phone_number} />
+              <Row icon={Calendar}  label="Hire Date"   value={fmtDate(emp.hire_date)} />
+              <Row icon={Briefcase} label="Job Title"   value={emp.job_title} />
+            </div>
           </div>
 
-          {/* Info rows */}
-          <div className="px-5 py-2">
-            <Row icon={Hash}      label="Employee ID" value={`#${shortId}`} />
-            <Row icon={Building2} label="Department"  value={emp.departments?.name} />
-            <Row icon={Mail}      label="Email"       value={emp.email} />
-            <Row icon={Phone}     label="Phone"       value={emp.phone_number} />
-            <Row icon={Calendar}  label="Hire Date"   value={fmtDate(emp.hire_date)} />
-            <Row icon={Briefcase} label="Job Title"   value={emp.job_title} />
+          {/* ── Footer ── */}
+          <div className="px-6 py-4 border-t border-gray-100 shrink-0 flex gap-3">
+            <button onClick={onClose}
+              className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors">
+              Close
+            </button>
+            <button onClick={onEdit}
+              className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-white text-sm font-bold transition-all"
+              style={{ background: 'linear-gradient(135deg,#4f46e5,#3b82f6)', boxShadow: '0 4px 14px rgba(79,70,229,0.3)' }}>
+              <Pencil size={13} /> Edit Employee
+            </button>
           </div>
-        </div>
-
-        {/* ── Pinned footer ── */}
-        <div className="px-5 py-4 border-t border-gray-100 shrink-0 flex gap-3 bg-white">
-          <button
-            onClick={onClose}
-            className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors whitespace-nowrap"
-          >
-            Close
-          </button>
-          <button
-            onClick={onEdit}
-            className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-white text-sm font-bold transition-all shadow-sm whitespace-nowrap"
-            style={{ background: 'linear-gradient(135deg,#4f46e5,#3b82f6)' }}
-          >
-            <Pencil size={13} /> Edit
-          </button>
         </div>
       </div>
 
-      <style>{`@keyframes slideRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
+      <style>{`
+        @keyframes empModalIn {
+          from { opacity: 0; transform: scale(0.96) translateY(10px); }
+          to   { opacity: 1; transform: scale(1)    translateY(0); }
+        }
+      `}</style>
     </>
   )
 }
