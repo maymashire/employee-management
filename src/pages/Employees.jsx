@@ -116,6 +116,20 @@ function ViewDrawer({ emp, onClose, onEdit }) {
   const roleMeta   = ROLE_META[emp.role]
   const shortId    = emp.id?.slice(-6).toUpperCase() ?? '——'
 
+  // Lock body scroll while drawer is open
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [])
+
+  // Close on Escape key
+  useEffect(() => {
+    const handle = e => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', handle)
+    return () => document.removeEventListener('keydown', handle)
+  }, [onClose])
+
   const Row = ({ icon: Icon, label, value }) => {
     if (!value) return null
     return (
@@ -123,9 +137,9 @@ function ViewDrawer({ emp, onClose, onEdit }) {
         <div className="w-8 h-8 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center shrink-0">
           <Icon size={14} className="text-gray-400" />
         </div>
-        <div>
+        <div className="min-w-0 flex-1">
           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{label}</p>
-          <p className="text-sm font-semibold text-gray-800 mt-0.5 break-all">{value}</p>
+          <p className="text-sm font-semibold text-gray-800 mt-0.5 break-words">{value}</p>
         </div>
       </div>
     )
@@ -133,58 +147,96 @@ function ViewDrawer({ emp, onClose, onEdit }) {
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/25 z-40" onClick={onClose} />
-      <div className="fixed inset-y-0 right-0 w-full max-w-[460px] bg-white z-50 shadow-2xl flex flex-col"
-        style={{ animation: 'slideRight .22s cubic-bezier(.4,0,.2,1) forwards' }}>
+      {/*
+        Backdrop: starts below the fixed header (top-16 = 64px) and to the right
+        of the sidebar on desktop (lg:left-64). z-40 sits above the sidebar (z-30)
+        but below the drawer (z-50).
+      */}
+      <div
+        className="fixed top-16 left-0 lg:left-64 right-0 bottom-0 bg-black/25 z-40"
+        onClick={onClose}
+      />
 
-        {/* Top bar */}
+      {/*
+        Drawer: starts at top-16 (below the 64px fixed header) so the app header
+        remains fully visible. Uses flex-col so header/footer stay pinned while the
+        middle section scrolls independently.
+      */}
+      <div
+        className="fixed top-16 bottom-0 right-0 z-50 flex flex-col bg-white shadow-2xl"
+        style={{
+          width: 'min(460px, 100vw)',
+          animation: 'slideRight .22s cubic-bezier(.4,0,.2,1) forwards',
+        }}
+      >
+        {/* ── Pinned header ── */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
-          <p className="text-sm font-bold text-gray-500">Employee Profile</p>
-          <button onClick={onClose} className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400 hover:text-gray-700 transition-colors">
+          <p className="text-sm font-bold text-gray-500 uppercase tracking-wider">Employee Profile</p>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400 hover:text-gray-700 transition-colors"
+          >
             <X size={16} />
           </button>
         </div>
 
-        {/* Profile header */}
-        <div className="px-5 py-6 border-b border-gray-100 shrink-0">
-          <div className="flex items-center gap-4">
-            <EmpAvatar emp={emp} size={14} />
-            <div className="min-w-0 flex-1">
-              <p className="font-extrabold text-gray-900 text-lg leading-tight truncate">
-                {emp.first_name} {emp.last_name}
-              </p>
-              <p className="text-gray-500 text-sm truncate mt-0.5">{emp.job_title || 'No title'}</p>
-              <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-                {statusMeta && <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-bold ${statusMeta.cls}`}>{statusMeta.label}</span>}
-                {roleMeta   && <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-bold ${roleMeta.cls}`}>{roleMeta.label}</span>}
+        {/* ── Scrollable body ── */}
+        <div className="flex-1 min-h-0 overflow-y-auto">
+
+          {/* Profile summary */}
+          <div className="px-5 py-5 border-b border-gray-100">
+            <div className="flex items-center gap-4">
+              <EmpAvatar emp={emp} size={14} />
+              <div className="min-w-0 flex-1">
+                <p className="font-extrabold text-gray-900 text-lg leading-tight truncate">
+                  {emp.first_name} {emp.last_name}
+                </p>
+                <p className="text-gray-500 text-sm truncate mt-0.5">{emp.job_title || 'No title'}</p>
+                <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                  {statusMeta && (
+                    <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-bold ${statusMeta.cls}`}>
+                      {statusMeta.label}
+                    </span>
+                  )}
+                  {roleMeta && (
+                    <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-bold ${roleMeta.cls}`}>
+                      {roleMeta.label}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           </div>
+
+          {/* Info rows */}
+          <div className="px-5 py-2">
+            <Row icon={Hash}      label="Employee ID" value={`#${shortId}`} />
+            <Row icon={Building2} label="Department"  value={emp.departments?.name} />
+            <Row icon={Mail}      label="Email"       value={emp.email} />
+            <Row icon={Phone}     label="Phone"       value={emp.phone_number} />
+            <Row icon={Calendar}  label="Hire Date"   value={fmtDate(emp.hire_date)} />
+            <Row icon={Briefcase} label="Job Title"   value={emp.job_title} />
+          </div>
         </div>
 
-        {/* Info list */}
-        <div className="flex-1 overflow-y-auto px-5 py-2">
-          <Row icon={Hash}      label="Employee ID"  value={`#${shortId}`} />
-          <Row icon={Building2} label="Department"   value={emp.departments?.name} />
-          <Row icon={Mail}      label="Email"        value={emp.email} />
-          <Row icon={Phone}     label="Phone"        value={emp.phone_number} />
-          <Row icon={Calendar}  label="Hire Date"    value={fmtDate(emp.hire_date)} />
-          <Row icon={Briefcase} label="Job Title"    value={emp.job_title} />
-        </div>
-
-        {/* Actions */}
-        <div className="px-5 py-4 border-t border-gray-100 shrink-0 flex gap-3">
-          <button onClick={onClose}
-            className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors">
+        {/* ── Pinned footer ── */}
+        <div className="px-5 py-4 border-t border-gray-100 shrink-0 flex gap-3 bg-white">
+          <button
+            onClick={onClose}
+            className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors whitespace-nowrap"
+          >
             Close
           </button>
-          <button onClick={onEdit}
-            className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-white text-sm font-bold transition-all shadow-sm"
-            style={{ background: 'linear-gradient(135deg,#4f46e5,#3b82f6)' }}>
+          <button
+            onClick={onEdit}
+            className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-white text-sm font-bold transition-all shadow-sm whitespace-nowrap"
+            style={{ background: 'linear-gradient(135deg,#4f46e5,#3b82f6)' }}
+          >
             <Pencil size={13} /> Edit
           </button>
         </div>
       </div>
+
       <style>{`@keyframes slideRight{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
     </>
   )

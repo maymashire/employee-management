@@ -75,19 +75,47 @@ function Toast({ toast, onDismiss }) {
 
 function DeptDrawer({ dept, employees, paletteIdx, onClose, onEdit }) {
   if (!dept) return null
-  const pal    = palette(paletteIdx)
+  const pal     = palette(paletteIdx)
   const members = employees.filter(e => e.department_id === dept.id)
   const active  = members.filter(e => e.status === 'active').length
 
+  // Lock body scroll while drawer is open
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [])
+
+  // Close on Escape key
+  useEffect(() => {
+    const handle = e => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', handle)
+    return () => document.removeEventListener('keydown', handle)
+  }, [onClose])
+
   return (
     <>
-      {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/30 z-40"
-        onClick={onClose} />
+      {/*
+        Backdrop: below the fixed header (top-16) and respects the sidebar
+        on desktop (lg:left-64). z-40 sits above sidebar (z-30), below drawer (z-50).
+      */}
+      <div
+        className="fixed top-16 left-0 lg:left-64 right-0 bottom-0 bg-black/25 z-40"
+        onClick={onClose}
+      />
 
-      {/* Drawer panel */}
-      <div className="fixed inset-y-0 right-0 w-full max-w-[540px] bg-white z-50 shadow-2xl flex flex-col"
-        style={{ animation: 'slideIn 0.22s cubic-bezier(.4,0,.2,1) forwards' }}>
+      {/*
+        Drawer: starts at top-16 so the app header stays fully visible.
+        flex-col with flex-1+min-h-0 on the scroll region keeps header/content
+        sections pinned while the team member list scrolls independently.
+      */}
+      <div
+        className="fixed top-16 bottom-0 right-0 z-50 flex flex-col bg-white shadow-2xl"
+        style={{
+          width: 'min(540px, 100vw)',
+          animation: 'slideIn 0.22s cubic-bezier(.4,0,.2,1) forwards',
+        }}
+      >
 
         {/* Header */}
         <div className="relative px-5 pt-5 pb-5 shrink-0"
@@ -134,8 +162,8 @@ function DeptDrawer({ dept, employees, paletteIdx, onClose, onEdit }) {
           </button>
         </div>
 
-        {/* Employee list */}
-        <div className="flex-1 overflow-y-auto">
+        {/* Employee list — flex-1 + min-h-0 allows correct overflow in a flex-col parent */}
+        <div className="flex-1 min-h-0 overflow-y-auto">
           {members.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 gap-3 text-gray-400">
               <Users size={36} className="text-gray-200" />
