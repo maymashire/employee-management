@@ -4,7 +4,10 @@ import { signInWithEmailAndPassword, signOut as fbSignOut, onAuthStateChanged } 
 import { doc, setDoc, collection, query, where, getDocs } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 
-export const AUTH_BYPASS = false
+export const AUTH_BYPASS = true
+
+const BYPASS_USER    = { id: 'admin-bypass', email: 'maryan@gmail.com' }
+const BYPASS_PROFILE = { id: 'admin-bypass', username: 'maryan@gmail.com', role: 'Admin', employee_id: null }
 
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -18,8 +21,6 @@ async function fetchUserProfile(email) {
       where('username', '==', email),
     ))
     if (!snap.empty) return { id: snap.docs[0].id, ...snap.docs[0].data() }
-
-    // First-time login for the admin account — auto-create the profile row
     if (email === 'maryan@gmail.com') {
       const profile = { username: email, role: 'Admin', employee_id: null, employees: null }
       await setDoc(doc(db, 'users', email), profile)
@@ -33,9 +34,9 @@ async function fetchUserProfile(email) {
 }
 
 export function AuthProvider({ children }) {
-  const [user,    setUser]    = useState(null)
-  const [profile, setProfile] = useState(undefined)
-  const [loading, setLoading] = useState(true)
+  const [user,    setUser]    = useState(AUTH_BYPASS ? BYPASS_USER    : null)
+  const [profile, setProfile] = useState(AUTH_BYPASS ? BYPASS_PROFILE : undefined)
+  const [loading, setLoading] = useState(AUTH_BYPASS ? false          : true)
 
   useEffect(() => {
     if (AUTH_BYPASS) return
