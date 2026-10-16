@@ -29,7 +29,7 @@ function PayslipModal({ record, onClose }) {
   const cfg   = record.employee_salary_config
   const name  = cfg?.employee_name         ?? '—'
   const dept  = cfg?.department             ?? '—'
-  const email = cfg?.employees?.email       ?? null
+  const email = cfg?.department             ?? null
   const basic = Number(record.basic_salary ?? 0)
   const ot    = Number(record.overtime     ?? 0)
   const bonus = Number(record.bonus        ?? 0)

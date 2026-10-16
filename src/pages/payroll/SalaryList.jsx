@@ -574,20 +574,17 @@ export default function SalaryList() {
   const filteredRecords = records.filter(r => {
     const q = search.toLowerCase()
     if (!q) return true
-    const cfg   = r.employee_salary_config
-    const name  = (cfg?.employee_name     ?? '').toLowerCase()
-    const dept  = (cfg?.department        ?? '').toLowerCase()
-    const email = (cfg?.employees?.email  ?? '').toLowerCase()
-    return name.includes(q) || dept.includes(q) || email.includes(q)
+    const cfg  = r.employee_salary_config
+    const name = (cfg?.employee_name ?? '').toLowerCase()
+    const dept = (cfg?.department    ?? '').toLowerCase()
+    return name.includes(q) || dept.includes(q)
   })
 
   const filteredConfigs = configs.filter(c => {
     const q = search.toLowerCase()
     if (!q) return true
-    const email = (c.employees?.email ?? '').toLowerCase()
     return (c.employee_name ?? '').toLowerCase().includes(q) ||
-           (c.department    ?? '').toLowerCase().includes(q) ||
-           email.includes(q)
+           (c.department    ?? '').toLowerCase().includes(q)
   })
 
   // ── render ─────────────────────────────────────────────────────────────────
@@ -684,7 +681,7 @@ export default function SalaryList() {
                     const cfg   = row.employee_salary_config
                     const name  = cfg?.employee_name ?? '—'
                     const ini   = initials(name)
-                    const email = cfg?.employees?.email ?? null
+                    const email = cfg?.department ?? null
                     return (
                       <tr key={row.id} className="hover:bg-gray-50/40 transition-colors group">
                         <td className="px-5 py-4">
@@ -776,7 +773,7 @@ export default function SalaryList() {
                 <tbody className="divide-y divide-gray-50">
                   {filteredConfigs.map(cfg => {
                     const ini   = initials(cfg.employee_name)
-                    const email = cfg.employees?.email ?? null
+                    const email = cfg.department ?? null
                     return (
                       <tr key={cfg.id} className="hover:bg-gray-50/40 transition-colors group">
                         <td className="px-5 py-4">

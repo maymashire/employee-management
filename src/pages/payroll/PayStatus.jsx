@@ -179,8 +179,8 @@ export default function PayStatus() {
                           </div>
                           <div>
                             <p className="font-semibold text-gray-800">{name}</p>
-                            {cfg?.employees?.email && (
-                              <p className="text-xs text-gray-400">{cfg.employees.email}</p>
+                            {cfg?.department && (
+                              <p className="text-xs text-gray-400">{cfg.department}</p>
                             )}
                           </div>
                         </div>

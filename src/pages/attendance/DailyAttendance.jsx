@@ -36,7 +36,11 @@ function Toast({ toast, onDismiss }) {
 }
 
 export default function DailyAttendance() {
-  const [date,       setDate]       = useState(new Date().toISOString().slice(0, 10))
+  const [date,       setDate]       = useState(() => {
+    const d = new Date()
+    const pad = n => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  })
   const [rows,       setRows]       = useState([]) // merged employees + attendance
   const [loading,    setLoading]    = useState(true)
   const [savingId,   setSavingId]   = useState(null)

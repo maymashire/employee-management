@@ -12,9 +12,6 @@ const fmt$ = n =>
 const fmtPeriod = iso =>
   iso ? new Date(`${iso}T00:00:00`).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '—'
 
-const fmtDateTime = iso =>
-  iso ? new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
-
 // Enum values match payroll_status type: 'Unpaid', 'Processing', 'Paid'
 const STATUS_META = {
   Unpaid:     { label: 'Unpaid',     cls: 'bg-gray-100    text-gray-600'    },
@@ -156,8 +153,8 @@ export default function SalaryHistory() {
                           </div>
                           <div>
                             <p className="font-semibold text-gray-800">{name}</p>
-                            {cfg?.employees?.email && (
-                              <p className="text-xs text-gray-400">{cfg.employees.email}</p>
+                            {cfg?.department && (
+                              <p className="text-xs text-gray-400">{cfg.department}</p>
                             )}
                           </div>
                         </div>

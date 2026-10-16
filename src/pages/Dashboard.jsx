@@ -124,7 +124,7 @@ export default function Dashboard() {
         r => r.pay_period?.startsWith(monthStart.slice(0, 7)) && r.status === 'Paid'
       )
 
-      const empList = employees ?? []
+      const empList = employees
 
       // ── Stat values ──
       const presentCount    = todayAttendance?.filter(a => a.status === 'present').length ?? 0
@@ -158,8 +158,11 @@ export default function Dashboard() {
           .sort((a, b) => b.value - a.value),
       )
 
-      // ── Recent employees (5 most recently added) ──
-      setRecentEmployees(empList.slice(0, 5))
+      // ── Recent employees (5 most recently hired) ──
+      const recent = [...empList]
+        .sort((a, b) => (b.hire_date ?? '').localeCompare(a.hire_date ?? ''))
+        .slice(0, 5)
+      setRecentEmployees(recent)
 
       // ── Today's attendance summary ──
       setAttendanceSummary({

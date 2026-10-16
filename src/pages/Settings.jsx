@@ -1,14 +1,3 @@
-/**
- * Settings — Phase 3: User Access Management
- *
- * Maps system roles (Admin / HR / Finance / Manager) to the custom
- * `public.users` table.  Supabase Auth handles passwords separately.
- *
- * public.users schema expected:
- *   username     TEXT UNIQUE  — the Supabase Auth email
- *   role         user_role    — enum: 'Admin'|'HR'|'Finance'|'Manager'
- *   employee_id  UUID FK → employees.id  (nullable)
- */
 import { useState, useEffect, useCallback } from 'react'
 import * as db from '../lib/db'
 import {
@@ -90,7 +79,7 @@ function AccessModal({ mode, initial, employees, onClose, onSave, loading }) {
             <p className="text-xs text-gray-400 mt-0.5">
               {isEdit
                 ? 'Change the role assigned to this user.'
-                : 'Link a Supabase Auth email to a system role.'
+                : 'Link a Firebase email address to a system role.'
               }
             </p>
           </div>
@@ -104,7 +93,7 @@ function AccessModal({ mode, initial, employees, onClose, onSave, loading }) {
           {/* Email / username */}
           <div>
             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
-              Email (Supabase Auth)
+              Email Address
             </label>
             <div className="relative">
               <Mail size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
@@ -120,7 +109,7 @@ function AccessModal({ mode, initial, employees, onClose, onSave, loading }) {
             </div>
             {!isEdit && (
               <p className="text-[11px] text-gray-400 mt-1.5">
-                The user must first be created in Supabase Auth (Dashboard → Authentication → Users).
+                Enter the user's email address. They can log in once added here.
               </p>
             )}
           </div>
@@ -204,7 +193,7 @@ function RevokeModal({ user, loading, onConfirm, onCancel }) {
         <p className="text-sm text-gray-500 mt-2 leading-relaxed">
           Remove system access for{' '}
           <span className="font-semibold text-gray-800">{user.username}</span>?<br />
-          Their Supabase Auth account and employee record will remain intact.
+          Their employee record will remain intact.
         </p>
         <div className="flex gap-3 mt-6">
           <button onClick={onCancel}
@@ -366,9 +355,8 @@ export default function SettingsPage() {
         <ShieldCheck size={18} className="text-blue-500 shrink-0 mt-0.5" />
         <div className="text-xs text-blue-700 leading-relaxed">
           <span className="font-semibold">How it works: </span>
-          Create the user in <span className="font-semibold">Supabase Auth → Authentication → Users</span> first (they'll get a password email).
-          Then click <span className="font-semibold">"Grant Access"</span> here to assign their system role.
-          The DB trigger auto-creates their employee profile on first login.
+          Click <span className="font-semibold">"Grant Access"</span> and enter the user's email and role.
+          The system will create their access profile immediately.
         </div>
       </div>
 

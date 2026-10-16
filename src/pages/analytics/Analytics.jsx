@@ -113,7 +113,7 @@ function EmployeeTab({ employees }) {
       const endOfMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59)
       result.push({
         month: d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
-        count: employees.filter(e => new Date(e.created_at) <= endOfMonth).length,
+        count: employees.filter(e => e.hire_date && new Date(e.hire_date) <= endOfMonth).length,
       })
     }
     return result

@@ -2,8 +2,12 @@ import { useState, useEffect, useCallback } from 'react'
 import * as db from '../../lib/db'
 import { AlertCircle, CheckCircle2, Loader2, Users } from 'lucide-react'
 
-const TODAY = new Date().toISOString().slice(0, 10)
 const SHIFT_START = 9  // 09:00
+
+function localDateStr(d) {
+  const pad = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
 
 function calcDuration(clockIn, clockOut) {
   if (!clockIn || !clockOut) return null
@@ -40,13 +44,16 @@ export default function CheckInOut() {
     return () => clearInterval(id)
   }, [])
 
+  const TODAY   = localDateStr(now)
+  const nowMins = now.getHours() * 60 + now.getMinutes()
+  const isLate  = nowMins > SHIFT_START * 60
+
   const clockStr = now.toLocaleTimeString('en-US', {
     hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
   })
   const dateStr = now.toLocaleDateString('en-US', {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
   })
-  const isLate = now.getHours() >= SHIFT_START
 
   // ── fetch employees ──
   const fetchEmployees = useCallback(async () => {
@@ -85,10 +92,10 @@ export default function CheckInOut() {
     const h   = String(now.getHours()).padStart(2, '0')
     const m   = String(now.getMinutes()).padStart(2, '0')
     const timeNow = `${h}:${m}`
-    const status  = now.getHours() >= SHIFT_START ? 'late' : 'present'
+    const status  = isLate ? 'late' : 'present'
 
     try {
-      await db.addAttendance({ employee_id: selected.id, date: TODAY, clock_in: timeNow, status })
+      await db.upsertAttendance(selected.id, TODAY, { clock_in: timeNow, status })
       setMessage({ type: 'success', text: `Clocked in at ${fmtTime(timeNow)}${status === 'late' ? ' — marked Late' : ''}` })
       await fetchAttendance(selected.id)
     } catch (err) {

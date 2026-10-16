@@ -100,12 +100,14 @@ export async function getAttendanceByDate(date) {
 
 /** Returns the single attendance record for empId on date, or null. */
 export async function getAttendanceByEmployeeDate(employeeId, date) {
+  // Filter by date only (single-field query, no composite index needed),
+  // then find the matching employee client-side.
   const snap = await getDocs(query(
     collection(db, 'attendance'),
-    where('employee_id', '==', employeeId),
     where('date', '==', date),
   ))
-  return snap.docs.length > 0 ? toObj(snap.docs[0]) : null
+  const found = snap.docs.find(d => d.data().employee_id === employeeId)
+  return found ? toObj(found) : null
 }
 
 /** All attendance rows in [start, end] date range (YYYY-MM-DD strings). */
