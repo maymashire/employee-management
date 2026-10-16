@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { supabase } from '../../lib/supabaseClient'
+import { getEmployees, getAttendanceRange, getPayrollRecordsByYear } from '../../lib/db'
 import {
   Users, UserCheck, Star, TrendingUp, Activity,
   FileText, Table, Loader2, Clock, UserX,
@@ -615,24 +615,17 @@ export default function Analytics() {
       const monthEnd   = `${yr}-${pad(mo + 1)}-${pad(new Date(yr, mo + 1, 0).getDate())}`
 
       const [r1, r2, r3, r4] = await Promise.all([
-        supabase.from('employees')
-          .select('id, first_name, last_name, status, created_at, departments(name)')
-          .order('created_at', { ascending: true }),
-        supabase.from('attendance')
-          .select('employee_id, date, status')
-          .gte('date', `${yr}-01-01`).lte('date', `${yr}-12-31`),
-        supabase.from('attendance')
-          .select('employee_id, date, status, clock_in')
-          .gte('date', monthStart).lte('date', monthEnd),
-        supabase.from('payroll_records')
-          .select('employee_id, bonus, employee_salary_config!salary_config_id(employee_name)')
-          .gte('pay_period', `${yr}-01-01`).lte('pay_period', `${yr}-12-31`),
+        getEmployees(),
+        getAttendanceRange(`${yr}-01-01`, `${yr}-12-31`),
+        getAttendanceRange(monthStart, monthEnd),
+        getPayrollRecordsByYear(yr),
       ])
 
-      setEmployees(r1.data ?? [])
-      setAttYear(r2.data   ?? [])
-      setAttMonth(r3.data  ?? [])
-      setBonusRows(r4.data ?? [])
+      r1.sort((a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? ''))
+      setEmployees(r1)
+      setAttYear(r2)
+      setAttMonth(r3)
+      setBonusRows(r4)
       setLoading(false)
     }
     loadAll()

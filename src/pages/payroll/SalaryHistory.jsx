@@ -3,7 +3,7 @@
  * Status enum: 'Unpaid' | 'Processing' | 'Paid'
  */
 import { useState, useEffect, useCallback } from 'react'
-import { supabase } from '../../lib/supabaseClient'
+import { getPayrollRecords, updatePayrollRecord } from '../../lib/db'
 import { History, Loader2, ChevronDown, CheckCircle2, AlertCircle, X } from 'lucide-react'
 
 const fmt$ = n =>
@@ -55,29 +55,12 @@ export default function SalaryHistory() {
   const dismissToast = useCallback(() => setToast(null), [])
 
   const fetchRecords = useCallback(async () => {
-    const WITH_EMP = `
-      id, pay_period, basic_salary, overtime, bonus,
-      deductions, tax, net_salary, status, processed_at, created_at,
-      employee_salary_config!salary_config_id(
-        employee_name, department,
-        employees!employee_salary_config_employee_id_fkey(email)
-      )`
-
-    const WITHOUT_EMP = `
-      id, pay_period, basic_salary, overtime, bonus,
-      deductions, tax, net_salary, status, processed_at, created_at,
-      employee_salary_config!salary_config_id(employee_name, department)`
-
-    let { data, error } = await supabase
-      .from('payroll_records').select(WITH_EMP).order('pay_period', { ascending: false })
-
-    if (error?.message?.toLowerCase().includes('relationship')) {
-      ;({ data, error } = await supabase
-        .from('payroll_records').select(WITHOUT_EMP).order('pay_period', { ascending: false }))
+    try {
+      const data = await getPayrollRecords()
+      setRecords(data)
+    } catch (err) {
+      showToast('error', err.message)
     }
-
-    if (error) showToast('error', error.message)
-    setRecords(data ?? [])
   }, [showToast])
 
   useEffect(() => {
@@ -93,16 +76,14 @@ export default function SalaryHistory() {
     const extra = next === 'Paid' || next === 'Processing'
       ? { processed_at: new Date().toISOString() }
       : {}
-    const { error } = await supabase
-      .from('payroll_records')
-      .update({ status: next, ...extra })
-      .eq('id', id)
-    setUpdating(null)
-    if (error) showToast('error', error.message)
-    else {
+    try {
+      await updatePayrollRecord(id, { status: next, ...extra })
       showToast('success', `Status updated → ${next}`)
       await fetchRecords()
+    } catch (err) {
+      showToast('error', err.message)
     }
+    setUpdating(null)
   }
 
   const filtered = filterStatus === 'all'

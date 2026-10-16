@@ -10,7 +10,7 @@
  *   employee_id  UUID FK → employees.id  (nullable)
  */
 import { useState, useEffect, useCallback } from 'react'
-import { supabase } from '../lib/supabaseClient'
+import * as db from '../lib/db'
 import {
   ShieldCheck, UserPlus, Pencil, Trash2, X,
   Loader2, CheckCircle2, AlertCircle,
@@ -238,26 +238,19 @@ export default function SettingsPage() {
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
   const fetchUsers = useCallback(async () => {
-    // Try joined query first; fall back if FK not in schema cache
-    let { data, error } = await supabase
-      .from('users')
-      .select('username, role, employee_id, employees(first_name, last_name)')
-      .order('role')
-    if (error?.message?.toLowerCase().includes('relationship')) {
-      ;({ data, error } = await supabase
-        .from('users').select('username, role, employee_id').order('role'))
+    try {
+      const data = await db.getSystemUsers()
+      setUsers(data)
+    } catch (err) {
+      showToast('error', err.message)
     }
-    if (error) showToast('error', error.message)
-    setUsers(data ?? [])
   }, [showToast])
 
   const fetchEmployees = useCallback(async () => {
-    const { data } = await supabase
-      .from('employees')
-      .select('id, first_name, last_name, email')
-      .eq('status', 'active')
-      .order('first_name')
-    setEmployees(data ?? [])
+    try {
+      const data = await db.getEmployees()
+      setEmployees(data.filter(e => e.status === 'active'))
+    } catch {}
   }, [])
 
   useEffect(() => {
@@ -271,17 +264,19 @@ export default function SettingsPage() {
 
     let error
     if (modal.mode === 'add') {
-      // Check for duplicate
-      const { data: existing } = await supabase
-        .from('users').select('username').eq('username', username).maybeSingle()
-      if (existing) {
+      // Check for duplicate against already-loaded users list
+      if (users.some(u => u.username === username)) {
         showToast('error', `${username} already has system access. Use "Edit Role" instead.`)
         setSaving(false)
         return
       }
-      ;({ error } = await supabase.from('users').insert({ username, role, employee_id }))
+      try {
+        await db.addSystemUser({ username, role, employee_id })
+      } catch (e) { error = e }
     } else {
-      ;({ error } = await supabase.from('users').update({ role, employee_id }).eq('username', username))
+      try {
+        await db.updateSystemUser(username, { role, employee_id })
+      } catch (e) { error = e }
     }
 
     setSaving(false)
@@ -301,14 +296,14 @@ export default function SettingsPage() {
   async function handleRevoke() {
     if (!revokeTarget) return
     setRevoking(true)
-    const { error } = await supabase.from('users').delete().eq('username', revokeTarget.username)
-    setRevoking(false)
-    if (error) {
-      showToast('error', error.message)
-    } else {
+    try {
+      await db.deleteSystemUser(revokeTarget.username)
       showToast('success', `Access revoked for ${revokeTarget.username}.`)
       setUsers(prev => prev.filter(u => u.username !== revokeTarget.username))
+    } catch (err) {
+      showToast('error', err.message)
     }
+    setRevoking(false)
     setRevokeTarget(null)
   }
 

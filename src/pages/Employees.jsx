@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { supabase } from '../lib/supabaseClient'
+import * as db from '../lib/db'
 import {
   UserPlus, Search, Pencil, Trash2, X,
   Loader2, CheckCircle2, AlertCircle,
@@ -299,17 +299,19 @@ export default function EmployeesPage() {
   // ── fetch ──
 
   const fetchEmployees = useCallback(async () => {
-    const { data, error } = await supabase
-      .from('employees')
-      .select('*, departments(name)')
-      .order('first_name')
-    if (error) showToast('error', error.message)
-    else setEmployees(data ?? [])
+    try {
+      const data = await db.getEmployees()
+      setEmployees(data)
+    } catch (err) {
+      showToast('error', err.message)
+    }
   }, [showToast])
 
   const fetchDepartments = useCallback(async () => {
-    const { data } = await supabase.from('departments').select('id, name').order('name')
-    setDepartments(data ?? [])
+    try {
+      const data = await db.getDepartments()
+      setDepartments(data)
+    } catch {}
   }, [])
 
   useEffect(() => {
@@ -366,16 +368,19 @@ export default function EmployeesPage() {
       avatar_url:    nullify(form.avatar_url),
     }
 
-    const { error } = modal.mode === 'add'
-      ? await supabase.from('employees').insert([payload])
-      : await supabase.from('employees').update(payload).eq('id', modal.id)
-
-    setSubmitting(false)
-
-    if (error) {
-      showToast('error', error.message)
+    try {
+      if (modal.mode === 'add') {
+        await db.addEmployee(payload)
+      } else {
+        await db.updateEmployee(modal.id, payload)
+      }
+    } catch (err) {
+      showToast('error', err.message)
+      setSubmitting(false)
       return
     }
+
+    setSubmitting(false)
 
     closeModal()
     showToast('success',
@@ -391,14 +396,16 @@ export default function EmployeesPage() {
   async function handleDelete() {
     if (!deleteTarget) return
     setDeleting(true)
-    const { error } = await supabase.from('employees').delete().eq('id', deleteTarget.id)
-    setDeleting(false)
-    if (error) {
-      showToast('error', error.message)
-    } else {
-      showToast('success', `${deleteTarget.first_name} ${deleteTarget.last_name} deleted.`)
-      setEmployees(prev => prev.filter(e => e.id !== deleteTarget.id))
+    try {
+      await db.deleteEmployee(deleteTarget.id)
+    } catch (err) {
+      showToast('error', err.message)
+      setDeleting(false)
+      return
     }
+    setDeleting(false)
+    showToast('success', `${deleteTarget.first_name} ${deleteTarget.last_name} deleted.`)
+    setEmployees(prev => prev.filter(e => e.id !== deleteTarget.id))
     setDeleteTarget(null)
   }
 

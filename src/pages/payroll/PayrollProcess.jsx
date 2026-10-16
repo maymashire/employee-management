@@ -4,7 +4,7 @@
  *   BOTTOM: live status of all records for that period with action buttons
  */
 import { useState, useEffect, useCallback } from 'react'
-import { supabase } from '../../lib/supabaseClient'
+import { getSalaryConfigs, getPayrollRecordsByPeriod, batchUpsertPayrollRecords, updatePayrollRecord } from '../../lib/db'
 import {
   Calculator, Loader2, CheckCircle2, AlertCircle, X,
   Play, ArrowRight, ChevronsRight, RefreshCw,
@@ -68,31 +68,24 @@ export default function PayrollProcess() {
 
   /* ── load salary configs ── */
   const fetchConfigs = useCallback(async () => {
-    const { data, error } = await supabase
-      .from('employee_salary_config')
-      .select('id, employee_id, employee_name, department, basic_salary')
-      .order('employee_name')
-    if (error) showToast('error', error.message)
-    const list = data ?? []
-    setConfigs(list)
-    setSelected(new Set(list.map(c => c.id)))
+    try {
+      const list = await getSalaryConfigs()
+      setConfigs(list)
+      setSelected(new Set(list.map(c => c.id)))
+    } catch (err) {
+      showToast('error', err.message)
+    }
   }, [showToast])
 
   /* ── load existing payroll_records for the current period ── */
   const fetchPeriodRecords = useCallback(async (targetMonth) => {
     if (!targetMonth) return
     setLoadingPeriod(true)
-    const { data, error } = await supabase
-      .from('payroll_records')
-      .select(`
-        id, employee_id, pay_period,
-        basic_salary, overtime, bonus, deductions, tax, net_salary, status,
-        employee_salary_config!salary_config_id(employee_name, department)
-      `)
-      .eq('pay_period', `${targetMonth}-01`)
-      .order('created_at', { ascending: true })
+    try {
+      const data = await getPayrollRecordsByPeriod(`${targetMonth}-01`)
+      setPeriodRecords(data)
+    } catch {}
     setLoadingPeriod(false)
-    if (!error) setPeriodRecords(data ?? [])
   }, [])
 
   useEffect(() => {
@@ -155,34 +148,23 @@ export default function PayrollProcess() {
       }
     })
 
-    const employeeIds = allRows.map(r => r.employee_id).filter(Boolean)
+    // Build configs map for denormalization
+    const configsMap = {}
+    configs.forEach(c => { configsMap[c.id] = c })
 
-    // Phase 2 — pre-check status of existing records
-    const { data: existing, error: fetchErr } = await supabase
-      .from('payroll_records')
-      .select('employee_id, status')
-      .in('employee_id', employeeIds)
-      .eq('pay_period', payPeriod)
-
-    if (fetchErr) {
-      showToast('error', `Pre-check failed: ${fetchErr.message}`)
+    let result
+    try {
+      result = await batchUpsertPayrollRecords(allRows, payPeriod, configsMap)
+    } catch (err) {
+      showToast('error', err.message)
       setSubmitting(false)
       return
     }
 
-    const statusMap = {}
-    ;(existing ?? []).forEach(r => { statusMap[r.employee_id] = r.status })
+    const { newRows, updatedRows, lockedRows } = result
+    setSubmitting(false)
 
-    const newRows    = allRows.filter(r => !statusMap[r.employee_id])
-    const unpaidRows = allRows.filter(r => statusMap[r.employee_id] === 'Unpaid')
-    const lockedRows = allRows.filter(r =>
-      statusMap[r.employee_id] === 'Processing' || statusMap[r.employee_id] === 'Paid'
-    )
-
-    const rowsToUpsert = [...newRows, ...unpaidRows]
-
-    if (rowsToUpsert.length === 0) {
-      setSubmitting(false)
+    if (newRows.length === 0 && updatedRows.length === 0) {
       showToast('error',
         `All ${lockedRows.length} record${lockedRows.length !== 1 ? 's' : ''} ` +
         `are already Processing or Paid and cannot be re-generated.`
@@ -191,20 +173,10 @@ export default function PayrollProcess() {
       return
     }
 
-    // Phase 3 — upsert (status NOT in payload → stays unchanged on conflict)
-    const { error } = await supabase
-      .from('payroll_records')
-      .upsert(rowsToUpsert, { onConflict: 'employee_id,pay_period' })
-      .select()
-
-    setSubmitting(false)
-
-    if (error) { showToast('error', error.message); return }
-
     const parts = []
-    if (newRows.length)    parts.push(`${newRows.length} new`)
-    if (unpaidRows.length) parts.push(`${unpaidRows.length} refreshed`)
-    if (lockedRows.length) parts.push(`${lockedRows.length} skipped (locked)`)
+    if (newRows.length)     parts.push(`${newRows.length} new`)
+    if (updatedRows.length) parts.push(`${updatedRows.length} refreshed`)
+    if (lockedRows.length)  parts.push(`${lockedRows.length} skipped (locked)`)
     showToast('success', `Payroll generated: ${parts.join(', ')}.`)
 
     // Refresh the period status panel so action buttons appear immediately
@@ -214,19 +186,14 @@ export default function PayrollProcess() {
   /* ── advance single record: Unpaid → Processing ──────────────────────────── */
   async function advanceToProcessing(record) {
     setAdvancing(record.id)
-    const { error } = await supabase
-      .from('payroll_records')
-      .update({
-        status:       'Processing',
-        processed_at: new Date().toISOString(),
-      })
-      .eq('id', record.id)
-    setAdvancing(null)
-    if (error) showToast('error', error.message)
-    else {
+    try {
+      await updatePayrollRecord(record.id, { status: 'Processing', processed_at: new Date().toISOString() })
       showToast('success', `${record.employee_salary_config?.employee_name ?? 'Record'} → Processing`)
       fetchPeriodRecords(month)
+    } catch (err) {
+      showToast('error', err.message)
     }
+    setAdvancing(null)
   }
 
   /* ── bulk advance all Unpaid → Processing ──────────────────────────────────── */
@@ -241,20 +208,16 @@ export default function PayrollProcess() {
     }
 
     setBulkAdvancing(true)
-    const { error } = await supabase
-      .from('payroll_records')
-      .update({
-        status:       'Processing',
-        processed_at: new Date().toISOString(),
-      })
-      .in('id', unpaidIds)
-    setBulkAdvancing(false)
-
-    if (error) showToast('error', error.message)
-    else {
+    try {
+      await Promise.all(unpaidIds.map(id =>
+        updatePayrollRecord(id, { status: 'Processing', processed_at: new Date().toISOString() })
+      ))
       showToast('success', `${unpaidIds.length} record${unpaidIds.length !== 1 ? 's' : ''} advanced → Processing`)
       fetchPeriodRecords(month)
+    } catch (err) {
+      showToast('error', err.message)
     }
+    setBulkAdvancing(false)
   }
 
   const totalSelected = [...selected].reduce((s, id) => {

@@ -1,6 +1,8 @@
 import { Navigate } from 'react-router-dom'
 import { useAuth, AUTH_BYPASS } from '../context/AuthContext'
 import { Loader2 } from 'lucide-react'
+import { auth } from '../lib/firebase'
+import { signOut as fbSignOut } from 'firebase/auth'
 
 // adminOnly={true}     → Admin + Finance (payroll pages)
 // adminOnly="strict"   → Admin only (Settings / User Management)
@@ -56,7 +58,7 @@ export default function ProtectedRoute({ children, adminOnly = false }) {
             </div>
           )}
           <button
-            onClick={() => import('../lib/supabaseClient').then(m => m.supabase.auth.signOut())}
+            onClick={() => fbSignOut(auth)}
             className="px-5 py-2.5 bg-[#1e3a8a] text-white text-sm font-semibold rounded-xl hover:bg-[#162d6e] transition-colors"
           >
             Sign Out

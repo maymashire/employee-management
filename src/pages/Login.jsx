@@ -1,9 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Eye, EyeOff, Lock, Mail, ShieldCheck } from 'lucide-react'
-
-const VALID_EMAIL    = 'maryan@gmail.com'
-const VALID_PASSWORD = 'maryan875@'
+import { useAuth } from '../context/AuthContext'
 
 export default function Login() {
   const [email,    setEmail]    = useState('')
@@ -13,22 +11,21 @@ export default function Login() {
   const [error,    setError]    = useState('')
   const [loading,  setLoading]  = useState(false)
 
-  const navigate = useNavigate()
+  const navigate  = useNavigate()
+  const { signIn } = useAuth()
 
   async function handleSubmit(e) {
     e.preventDefault()
     setError('')
     setLoading(true)
 
-    // Brief artificial delay for UX feedback
-    await new Promise(r => setTimeout(r, 600))
+    const { error: authError } = await signIn(email.trim(), password)
 
-    if (email.trim().toLowerCase() === VALID_EMAIL && password === VALID_PASSWORD) {
-      sessionStorage.setItem('wf_auth', '1')
-      navigate('/dashboard', { replace: true })
-    } else {
+    if (authError) {
       setError('Invalid email or password. Please try again.')
       setLoading(false)
+    } else {
+      navigate('/dashboard', { replace: true })
     }
   }
 

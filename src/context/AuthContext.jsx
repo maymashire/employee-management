@@ -1,107 +1,70 @@
 import { createContext, useContext, useEffect, useState } from 'react'
-import { supabase } from '../lib/supabaseClient'
+import { auth } from '../lib/firebase'
+import { signInWithEmailAndPassword, signOut as fbSignOut, onAuthStateChanged } from 'firebase/auth'
+import { doc, setDoc, collection, query, where, getDocs } from 'firebase/firestore'
+import { db } from '../lib/firebase'
 
-// ── Auth bypass ────────────────────────────────────────────────────────────────
-// true  → skip Supabase Auth entirely; grant immediate Admin access
-// false → real Supabase sign-in required (re-enable when auth is stable)
-export const AUTH_BYPASS = true
-
-const BYPASS_USER = {
-  id:    '7114700c-735e-4bf9-a95d-2b1fc980b981',
-  email: 'maryan@gmail.com',
-}
-const BYPASS_PROFILE = {
-  id:          '7114700c-735e-4bf9-a95d-2b1fc980b981',
-  username:    'maryan@gmail.com',
-  role:        'Admin',
-  employee_id: '7114700c-735e-4bf9-a95d-2b1fc980b981',
-}
+export const AUTH_BYPASS = false
 
 // ──────────────────────────────────────────────────────────────────────────────
 
 const AuthContext = createContext(null)
 
-// Fetch the row from public.users — tries by username (email) first,
-// then by id as a fallback (covers manual upserts where id = auth uid).
-async function fetchUserProfile(email, userId) {
-  if (!email && !userId) return null
+async function fetchUserProfile(email) {
+  if (!email) return null
   try {
-    if (email) {
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('username', email)
-        .maybeSingle()
-      if (!error && data) return data
-      if (error) console.warn('[AuthContext] username lookup error:', error.message)
-    }
-    if (userId) {
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', userId)
-        .maybeSingle()
-      if (!error && data) return data
-      if (error) console.warn('[AuthContext] id lookup error:', error.message)
+    const snap = await getDocs(query(
+      collection(db, 'users'),
+      where('username', '==', email),
+    ))
+    if (!snap.empty) return { id: snap.docs[0].id, ...snap.docs[0].data() }
+
+    // First-time login for the admin account — auto-create the profile row
+    if (email === 'maryan@gmail.com') {
+      const profile = { username: email, role: 'Admin', employee_id: null, employees: null }
+      await setDoc(doc(db, 'users', email), profile)
+      return { id: email, ...profile }
     }
     return null
   } catch (err) {
-    console.warn('[AuthContext] fetchUserProfile exception:', err)
+    console.warn('[AuthContext] fetchUserProfile error:', err)
     return null
   }
 }
 
 export function AuthProvider({ children }) {
-  // Hooks are always called regardless of bypass (React rules of hooks).
-  // When bypassed the initial values are pre-filled so no effects are needed.
-  const [user,    setUser]    = useState(AUTH_BYPASS ? BYPASS_USER    : null)
-  const [profile, setProfile] = useState(AUTH_BYPASS ? BYPASS_PROFILE : undefined)
-  const [loading, setLoading] = useState(AUTH_BYPASS ? false          : true)
+  const [user,    setUser]    = useState(null)
+  const [profile, setProfile] = useState(undefined)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (AUTH_BYPASS) return   // no Supabase subscriptions when bypassed
+    if (AUTH_BYPASS) return
 
-    let cancelled = false
-
-    supabase.auth.getSession()
-      .then(async ({ data: { session } }) => {
-        if (cancelled) return
-        const u = session?.user ?? null
-        setUser(u)
-        const prof = u ? await fetchUserProfile(u.email, u.id) : null
-        if (!cancelled) { setProfile(prof); setLoading(false) }
-      })
-      .catch(err => {
-        console.warn('[AuthContext] getSession error:', err)
-        if (!cancelled) { setProfile(null); setLoading(false) }
-      })
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        if (cancelled) return
-        const u = session?.user ?? null
-        setUser(u)
-        if (u) {
-          const prof = await fetchUserProfile(u.email, u.id)
-          if (!cancelled) setProfile(prof)
-        } else {
-          setProfile(null)
-        }
-        if (!cancelled) setLoading(false)
+    const unsub = onAuthStateChanged(auth, async (fbUser) => {
+      if (fbUser) {
+        setUser({ id: fbUser.uid, email: fbUser.email })
+        const prof = await fetchUserProfile(fbUser.email)
+        setProfile(prof)
+      } else {
+        setUser(null)
+        setProfile(null)
       }
-    )
+      setLoading(false)
+    })
 
-    return () => { cancelled = true; subscription.unsubscribe() }
+    return () => unsub()
   }, [])
 
   // ── Auth actions ───────────────────────────────────────────────────────────
   const signIn = AUTH_BYPASS
     ? () => Promise.resolve({ data: null, error: null })
-    : (email, password) => supabase.auth.signInWithPassword({ email, password })
+    : (email, password) => signInWithEmailAndPassword(auth, email, password)
+      .then(c => ({ data: c, error: null }))
+      .catch(e => ({ data: null, error: e }))
 
   const signOut = AUTH_BYPASS
     ? () => { sessionStorage.removeItem('wf_auth'); return Promise.resolve() }
-    : () => supabase.auth.signOut()
+    : () => fbSignOut(auth)
 
   // ── Role flags ─────────────────────────────────────────────────────────────
   const isAdmin   = profile?.role === 'Admin'
@@ -110,7 +73,6 @@ export function AuthProvider({ children }) {
   const isManager = profile?.role === 'Manager'
   const canAccessPayroll = isAdmin || isFinance
 
-  // ── Derived display values ─────────────────────────────────────────────────
   const fullEmail   = user?.email ?? ''
   const displayName = fullEmail.split('@')[0] || 'User'
   const roleLabel   = profile?.role ?? null

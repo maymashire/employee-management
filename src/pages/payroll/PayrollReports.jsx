@@ -4,7 +4,7 @@
  * net_salary is a GENERATED column in payroll_records.
  */
 import { useState, useEffect, useMemo } from 'react'
-import { supabase } from '../../lib/supabaseClient'
+import { getPayrollRecordsByYear } from '../../lib/db'
 import { Loader2, DollarSign, Users, TrendingUp, Award } from 'lucide-react'
 import {
   BarChart, Bar, AreaChart, Area,
@@ -53,20 +53,10 @@ export default function PayrollReports() {
   const yr = new Date().getFullYear()
 
   useEffect(() => {
-    // Simple select — department is in employee_salary_config, no employees join needed
-    supabase
-      .from('payroll_records')
-      .select(`
-        net_salary, basic_salary, overtime, bonus, deductions, tax,
-        pay_period, status,
-        employee_salary_config!salary_config_id(department)
-      `)
-      .gte('pay_period', `${yr}-01-01`)
-      .lte('pay_period', `${yr}-12-31`)
-      .then(({ data, error }) => {
-        if (!error) setRecords(data ?? [])
-        setLoading(false)
-      })
+    getPayrollRecordsByYear(yr)
+      .then(data => setRecords(data))
+      .catch(() => {})
+      .finally(() => setLoading(false))
   }, [yr])
 
   // ── KPIs: use records with status 'Paid' ──────────────────────────────────

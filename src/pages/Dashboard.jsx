@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabaseClient'
+import { getEmployees, getDepartments, getAttendanceByDate, getPayrollRecordsByYear } from '../lib/db'
 import { useAuth } from '../context/AuthContext'
 import { Users, Building2, Clock, DollarSign, ArrowRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
@@ -111,21 +111,18 @@ export default function Dashboard() {
       const today      = new Date().toISOString().slice(0, 10)
       const monthStart = `${today.slice(0, 7)}-01`
 
-      const [
-        { data: employees },
-        { count: deptCount },
-        { data: todayAttendance },
-        { data: payrollThisMonth },
-      ] = await Promise.all([
-        supabase
-          .from('employees')
-          .select('id, first_name, last_name, hire_date, department_id, departments(name), avatar_url, job_title, created_at')
-          .eq('status', 'active')
-          .order('created_at', { ascending: false }),
-        supabase.from('departments').select('*', { count: 'exact', head: true }),
-        supabase.from('attendance').select('id, status').eq('date', today),
-        supabase.from('payroll').select('net_salary').gte('pay_period_start', monthStart).eq('status', 'paid'),
+      const [allEmps, allDepts, todayAttendance, payrollThisYear] = await Promise.all([
+        getEmployees(),
+        getDepartments(),
+        getAttendanceByDate(today),
+        getPayrollRecordsByYear(new Date().getFullYear()),
       ])
+
+      const employees         = allEmps.filter(e => e.status === 'active')
+      const deptCount         = allDepts.length
+      const payrollThisMonth  = payrollThisYear.filter(
+        r => r.pay_period?.startsWith(monthStart.slice(0, 7)) && r.status === 'Paid'
+      )
 
       const empList = employees ?? []
 
@@ -135,7 +132,7 @@ export default function Dashboard() {
 
       setStats({
         total:          empList.length,
-        departments:    deptCount ?? 0,
+        departments:    deptCount,
         presentToday:   presentCount,
         monthlyPayroll: monthlyPayTotal,
       })

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { supabase } from '../../lib/supabaseClient'
+import { getAttendanceRange } from '../../lib/db'
 import { Activity, Clock, UserX, TrendingUp, Loader2 } from 'lucide-react'
 import {
   BarChart, Bar, AreaChart, Area,
@@ -70,18 +70,18 @@ export default function AttendanceReports() {
       const yearStart  = `${yr}-01-01`
       const yearEnd    = `${yr}-12-31`
 
-      const [r1, r2, r3] = await Promise.all([
-        supabase.from('attendance').select('status, clock_in, clock_out, date')
-          .gte('date', monthStart).lte('date', monthEnd),
-        supabase.from('attendance').select('date, status')
-          .gte('date', weekStart).lte('date', weekEnd),
-        supabase.from('attendance').select('date, status')
-          .gte('date', yearStart).lte('date', yearEnd),
-      ])
-
-      setMonthRows(r1.data ?? [])
-      setWeekRows(r2.data  ?? [])
-      setYearRows(r3.data  ?? [])
+      try {
+        const [r1, r2, r3] = await Promise.all([
+          getAttendanceRange(monthStart, monthEnd),
+          getAttendanceRange(weekStart,  weekEnd),
+          getAttendanceRange(yearStart,  yearEnd),
+        ])
+        setMonthRows(r1)
+        setWeekRows(r2)
+        setYearRows(r3)
+      } catch (err) {
+        console.error('Reports load error:', err)
+      }
       setLoading(false)
     }
     load()

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { supabase } from '../lib/supabaseClient'
+import * as db from '../lib/db'
 import {
   Building2, Plus, Pencil, Trash2, X,
   Loader2, CheckCircle2, AlertCircle, Users,
@@ -156,22 +156,20 @@ export default function DepartmentsPage() {
   // ── data fetching ──
 
   const fetchAll = useCallback(async () => {
-    const [{ data: depts, error }, { data: emps }] = await Promise.all([
-      supabase.from('departments').select('*').order('name'),
-      supabase.from('employees').select('id, department_id').eq('status', 'active'),
-    ])
-
-    if (error) {
-      console.error('departments fetch error:', error.message)
+    try {
+      const [depts, emps] = await Promise.all([
+        db.getDepartments(),
+        db.getEmployees(),
+      ])
+      setDepartments(depts)
+      const counts = {}
+      emps.filter(e => e.status === 'active').forEach(e => {
+        if (e.department_id) counts[e.department_id] = (counts[e.department_id] ?? 0) + 1
+      })
+      setEmpCounts(counts)
+    } catch (err) {
+      console.error('departments fetch error:', err.message)
     }
-
-    setDepartments(depts ?? [])
-
-    const counts = {}
-    ;(emps ?? []).forEach(e => {
-      if (e.department_id) counts[e.department_id] = (counts[e.department_id] ?? 0) + 1
-    })
-    setEmpCounts(counts)
   }, [])
 
   useEffect(() => {
@@ -212,17 +210,19 @@ export default function DepartmentsPage() {
       description: form.description.trim() || null,
     }
 
-    const { error } = modal.mode === 'add'
-      ? await supabase.from('departments').insert([payload])
-      : await supabase.from('departments').update(payload).eq('id', modal.id)
-
-    setSubmitting(false)
-
-    if (error) {
-      showToast('error', error.message)
+    try {
+      if (modal.mode === 'add') {
+        await db.addDepartment(payload)
+      } else {
+        await db.updateDepartment(modal.id, payload)
+      }
+    } catch (err) {
+      showToast('error', err.message)
+      setSubmitting(false)
       return
     }
 
+    setSubmitting(false)
     closeModal()
     showToast('success', modal.mode === 'add' ? `"${payload.name}" created.` : `"${payload.name}" updated.`)
     await fetchAll()
@@ -231,15 +231,14 @@ export default function DepartmentsPage() {
   async function handleDelete() {
     if (!deleteTarget) return
     setDeleting(true)
-    const { error } = await supabase.from('departments').delete().eq('id', deleteTarget.id)
-    setDeleting(false)
-
-    if (error) {
-      showToast('error', error.message)
-    } else {
+    try {
+      await db.deleteDepartment(deleteTarget.id)
       showToast('success', `"${deleteTarget.name}" deleted.`)
       setDepartments(prev => prev.filter(d => d.id !== deleteTarget.id))
+    } catch (err) {
+      showToast('error', err.message)
     }
+    setDeleting(false)
     setDeleteTarget(null)
   }
 

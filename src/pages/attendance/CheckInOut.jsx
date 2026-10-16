@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { supabase } from '../../lib/supabaseClient'
+import * as db from '../../lib/db'
 import { AlertCircle, CheckCircle2, Loader2, Users } from 'lucide-react'
 
 const TODAY = new Date().toISOString().slice(0, 10)
@@ -50,12 +50,10 @@ export default function CheckInOut() {
 
   // ── fetch employees ──
   const fetchEmployees = useCallback(async () => {
-    const { data } = await supabase
-      .from('employees')
-      .select('id, first_name, last_name, job_title, departments(name)')
-      .eq('status', 'active')
-      .order('first_name')
-    setEmployees(data ?? [])
+    try {
+      const data = await db.getEmployees()
+      setEmployees(data.filter(e => e.status === 'active'))
+    } catch {}
     setLoading(false)
   }, [])
 
@@ -64,13 +62,12 @@ export default function CheckInOut() {
   // ── fetch attendance for selected employee ──
   const fetchAttendance = useCallback(async (empId) => {
     if (!empId) { setAttendance(null); return }
-    const { data } = await supabase
-      .from('attendance')
-      .select('*')
-      .eq('employee_id', empId)
-      .eq('date', TODAY)
-      .maybeSingle()
-    setAttendance(data ?? null)
+    try {
+      const data = await db.getAttendanceByEmployeeDate(empId, TODAY)
+      setAttendance(data)
+    } catch {
+      setAttendance(null)
+    }
   }, [])
 
   function selectEmployee(emp) {
@@ -90,20 +87,14 @@ export default function CheckInOut() {
     const timeNow = `${h}:${m}`
     const status  = now.getHours() >= SHIFT_START ? 'late' : 'present'
 
-    const { error } = await supabase.from('attendance').insert({
-      employee_id: selected.id,
-      date:        TODAY,
-      clock_in:    timeNow,
-      status,
-    })
-
-    setActionLoading(false)
-    if (error) {
-      setMessage({ type: 'error', text: error.message })
-    } else {
+    try {
+      await db.addAttendance({ employee_id: selected.id, date: TODAY, clock_in: timeNow, status })
       setMessage({ type: 'success', text: `Clocked in at ${fmtTime(timeNow)}${status === 'late' ? ' — marked Late' : ''}` })
       await fetchAttendance(selected.id)
+    } catch (err) {
+      setMessage({ type: 'error', text: err.message })
     }
+    setActionLoading(false)
   }
 
   // ── clock out ──
@@ -116,18 +107,14 @@ export default function CheckInOut() {
     const m   = String(now.getMinutes()).padStart(2, '0')
     const timeNow = `${h}:${m}`
 
-    const { error } = await supabase
-      .from('attendance')
-      .update({ clock_out: timeNow })
-      .eq('id', attendance.id)
-
-    setActionLoading(false)
-    if (error) {
-      setMessage({ type: 'error', text: error.message })
-    } else {
+    try {
+      await db.updateAttendance(attendance.id, { clock_out: timeNow })
       setMessage({ type: 'success', text: `Clocked out at ${fmtTime(timeNow)}` })
       await fetchAttendance(selected.id)
+    } catch (err) {
+      setMessage({ type: 'error', text: err.message })
     }
+    setActionLoading(false)
   }
 
   const canClockIn  = selected && !attendance?.clock_in

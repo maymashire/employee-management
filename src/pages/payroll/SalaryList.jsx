@@ -5,7 +5,7 @@
  * in employee_salary_config and is fetched via the salary_config_id FK.
  */
 import { useState, useEffect, useCallback } from 'react'
-import { supabase } from '../../lib/supabaseClient'
+import * as db from '../../lib/db'
 import {
   Search, RefreshCw, Plus, Pencil, Trash2, Settings2,
   X, Loader2, CheckCircle2, AlertCircle,
@@ -394,56 +394,25 @@ export default function SalaryList() {
   // Falls back to 2-layer if the FK constraint hasn't been created yet,
   // so records always display even before the SQL migration is run.
   const fetchRecords = useCallback(async () => {
-    const WITH_EMP = `
-      id, pay_period, basic_salary, overtime, bonus,
-      deductions, tax, net_salary, status, created_at,
-      employee_salary_config!salary_config_id(
-        id, employee_id, employee_name, department, basic_salary,
-        employees!employee_salary_config_employee_id_fkey(id, first_name, last_name, email)
-      )`
-
-    const WITHOUT_EMP = `
-      id, pay_period, basic_salary, overtime, bonus,
-      deductions, tax, net_salary, status, created_at,
-      employee_salary_config!salary_config_id(
-        id, employee_id, employee_name, department, basic_salary
-      )`
-
-    let { data, error } = await supabase
-      .from('payroll_records')
-      .select(WITH_EMP)
-      .order('created_at', { ascending: false })
-
-    if (error?.message?.toLowerCase().includes('relationship')) {
-      // FK not yet in schema cache — retry without the employees sub-join
-      ;({ data, error } = await supabase
-        .from('payroll_records')
-        .select(WITHOUT_EMP)
-        .order('created_at', { ascending: false }))
+    try {
+      const data = await db.getPayrollRecords()
+      setRecords(data)
+    } catch (err) {
+      showToast('error', err.message)
     }
-
-    if (error) showToast('error', error.message)
-    setRecords(data ?? [])
   }, [showToast])
 
-  // ── fetch employee_salary_config (for RecordModal dropdown) ───────────────
-  // Simple query — no employees FK join so it works before the migration.
-  // Payload: id (= salary_config_id), employee_id, employee_name, department, basic_salary
   const fetchConfigs = useCallback(async () => {
-    const [{ data: cfgs, error }, { data: emps }] = await Promise.all([
-      supabase
-        .from('employee_salary_config')
-        .select('id, employee_id, employee_name, department, basic_salary')
-        .order('employee_name'),
-      supabase
-        .from('employees')
-        .select('id, first_name, last_name, email, departments(name)')
-        .eq('status', 'active')
-        .order('first_name'),
-    ])
-    if (error) showToast('error', error.message)
-    setConfigs(cfgs  ?? [])
-    setEmployees(emps ?? [])
+    try {
+      const [cfgs, emps] = await Promise.all([
+        db.getSalaryConfigs(),
+        db.getEmployees(),
+      ])
+      setConfigs(cfgs)
+      setEmployees(emps.filter(e => e.status === 'active'))
+    } catch (err) {
+      showToast('error', err.message)
+    }
   }, [showToast])
 
   useEffect(() => {
@@ -489,27 +458,19 @@ export default function SalaryList() {
 
     if (!cfg) {
       // No salary config for this employee yet — create a default one
-      const { data: newCfg, error: cfgErr } = await supabase
-        .from('employee_salary_config')
-        .insert({
+      try {
+        cfg = await db.addSalaryConfig({
           employee_id:   recForm.employee_id,
-          employee_name: employee
-            ? `${employee.first_name} ${employee.last_name}`
-            : '',
+          employee_name: employee ? `${employee.first_name} ${employee.last_name}` : '',
           department:    employee?.departments?.name ?? '',
           basic_salary:  Number(recForm.basic_salary) || 0,
         })
-        .select('id, employee_id, employee_name, department, basic_salary')
-        .single()
-
-      if (cfgErr) {
+        fetchConfigs()
+      } catch (cfgErr) {
         showToast('error', `Could not create salary config: ${cfgErr.message}`)
         setSaving(false)
         return
       }
-      cfg = newCfg
-      // Refresh config list so the modal reflects the new config next time
-      fetchConfigs()
     }
 
     // ── Step 2: insert / update payroll_records ────────────────────────────────
@@ -523,16 +484,20 @@ export default function SalaryList() {
       tax:              Number(recForm.tax)        || 0,
     }
 
-    let error
-    if (recModal.mode === 'add') {
-      payload.pay_period = monthToDate(recForm.pay_period_month)
-      ;({ error } = await supabase.from('payroll_records').insert([payload]))
-    } else {
-      ;({ error } = await supabase.from('payroll_records').update(payload).eq('id', recModal.id))
+    try {
+      if (recModal.mode === 'add') {
+        payload.pay_period = monthToDate(recForm.pay_period_month)
+        await db.addPayrollRecord(payload)
+      } else {
+        await db.updatePayrollRecord(recModal.id, payload)
+      }
+    } catch (err) {
+      showToast('error', err.message)
+      setSaving(false)
+      return
     }
 
     setSaving(false)
-    if (error) { showToast('error', error.message); return }
     showToast('success', recModal.mode === 'add' ? 'Record added.' : 'Record updated.')
     setRecModal({ open: false })
     fetchRecords()
@@ -565,12 +530,19 @@ export default function SalaryList() {
       basic_salary:  Number(cfgForm.basic_salary) || 0,
     }
 
-    const { error } = cfgModal.mode === 'add'
-      ? await supabase.from('employee_salary_config').insert([payload])
-      : await supabase.from('employee_salary_config').update(payload).eq('id', cfgModal.id)
+    try {
+      if (cfgModal.mode === 'add') {
+        await db.addSalaryConfig(payload)
+      } else {
+        await db.updateSalaryConfig(cfgModal.id, payload)
+      }
+    } catch (err) {
+      showToast('error', err.message)
+      setSaving(false)
+      return
+    }
 
     setSaving(false)
-    if (error) { showToast('error', error.message); return }
     showToast('success', cfgModal.mode === 'add' ? 'Config added.' : 'Config updated.')
     setCfgModal({ open: false })
     fetchConfigs()
@@ -580,10 +552,18 @@ export default function SalaryList() {
   async function handleDelete() {
     if (!delTarget) return
     setDeleting(true)
-    const table = delContext === 'record' ? 'payroll_records' : 'employee_salary_config'
-    const { error } = await supabase.from(table).delete().eq('id', delTarget.id)
+    try {
+      if (delContext === 'record') {
+        await db.deletePayrollRecord(delTarget.id)
+      } else {
+        await db.deleteSalaryConfig(delTarget.id)
+      }
+    } catch (err) {
+      showToast('error', err.message)
+      setDeleting(false)
+      return
+    }
     setDeleting(false)
-    if (error) { showToast('error', error.message); return }
     showToast('success', 'Deleted successfully.')
     setDelTarget(null)
     if (delContext === 'record') fetchRecords()

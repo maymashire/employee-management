@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { supabase } from '../../lib/supabaseClient'
+import * as db from '../../lib/db'
 import { CalendarDays, ChevronLeft, ChevronRight, Loader2, CheckCircle2, AlertCircle, X } from 'lucide-react'
 
 const STATUS_META = {
@@ -47,17 +47,20 @@ export default function DailyAttendance() {
 
   const fetchData = useCallback(async () => {
     setLoading(true)
-    const [{ data: emps }, { data: att }] = await Promise.all([
-      supabase.from('employees').select('id, first_name, last_name, departments(name), job_title').eq('status', 'active').order('first_name'),
-      supabase.from('attendance').select('*').eq('date', date),
-    ])
-
-    const attMap = {}
-    ;(att ?? []).forEach(r => { attMap[r.employee_id] = r })
-
-    setRows((emps ?? []).map(e => ({ ...e, attendance: attMap[e.id] ?? null })))
+    try {
+      const [allEmps, att] = await Promise.all([
+        db.getEmployees(),
+        db.getAttendanceByDate(date),
+      ])
+      const emps = allEmps.filter(e => e.status === 'active')
+      const attMap = {}
+      att.forEach(r => { attMap[r.employee_id] = r })
+      setRows(emps.map(e => ({ ...e, attendance: attMap[e.id] ?? null })))
+    } catch (err) {
+      showToast('error', err.message)
+    }
     setLoading(false)
-  }, [date])
+  }, [date, showToast])
 
   useEffect(() => { fetchData() }, [fetchData])
 
@@ -66,26 +69,24 @@ export default function DailyAttendance() {
 
     const existing = employee.attendance
 
-    let error
-    if (existing) {
-      ;({ error } = await supabase.from('attendance').update({ status }).eq('id', existing.id))
-    } else {
-      ;({ error } = await supabase.from('attendance').insert({
-        employee_id: employee.id,
-        date,
-        status,
-        clock_in:  null,
-        clock_out: null,
-      }))
-    }
-
-    setSavingId(null)
-    if (error) {
-      showToast('error', error.message)
-    } else {
+    try {
+      if (existing) {
+        await db.updateAttendance(existing.id, { status })
+      } else {
+        await db.addAttendance({
+          employee_id: employee.id,
+          date,
+          status,
+          clock_in:  null,
+          clock_out: null,
+        })
+      }
       showToast('success', `${employee.first_name} marked as ${STATUS_META[status].label}`)
       await fetchData()
+    } catch (err) {
+      showToast('error', err.message)
     }
+    setSavingId(null)
   }
 
   function stepDate(dir) {

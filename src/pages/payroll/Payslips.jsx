@@ -4,7 +4,7 @@
  * net_salary is a GENERATED column (no need to compute it client-side).
  */
 import { useState, useEffect } from 'react'
-import { supabase } from '../../lib/supabaseClient'
+import { getPayrollRecords } from '../../lib/db'
 import { FileText, Eye, Printer, X, Loader2, Search } from 'lucide-react'
 
 const fmt$ = n => `$${Number(n ?? 0).toFixed(2)}`
@@ -167,37 +167,10 @@ export default function Payslips() {
   const [search,   setSearch]   = useState('')
 
   useEffect(() => {
-    const WITH_EMP = `
-      id, pay_period, basic_salary, overtime, bonus,
-      deductions, tax, net_salary, status, processed_at,
-      employee_salary_config!salary_config_id(
-        employee_name, department, employee_id,
-        employees!employee_salary_config_employee_id_fkey(id, first_name, last_name, email)
-      )`
-
-    const WITHOUT_EMP = `
-      id, pay_period, basic_salary, overtime, bonus,
-      deductions, tax, net_salary, status, processed_at,
-      employee_salary_config!salary_config_id(employee_name, department, employee_id)`
-
-    supabase
-      .from('payroll_records')
-      .select(WITH_EMP)
-      .in('status', ['Processing', 'Paid'])
-      .order('pay_period', { ascending: false })
-      .then(async ({ data, error }) => {
-        if (error?.message?.toLowerCase().includes('relationship')) {
-          const res = await supabase
-            .from('payroll_records')
-            .select(WITHOUT_EMP)
-            .in('status', ['Processing', 'Paid'])
-            .order('pay_period', { ascending: false })
-          setRecords(res.data ?? [])
-        } else {
-          setRecords(data ?? [])
-        }
-        setLoading(false)
-      })
+    getPayrollRecords()
+      .then(data => setRecords(data.filter(r => r.status === 'Processing' || r.status === 'Paid')))
+      .catch(() => {})
+      .finally(() => setLoading(false))
   }, [])
 
   const filtered = records.filter(r => {

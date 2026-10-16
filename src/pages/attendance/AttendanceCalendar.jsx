@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { supabase } from '../../lib/supabaseClient'
+import * as db from '../../lib/db'
 import { ChevronLeft, ChevronRight, Loader2, User } from 'lucide-react'
 
 const DAYS   = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
@@ -46,17 +46,14 @@ export default function AttendanceCalendar() {
 
   // ── load employees once ────────────────────────────────────────────────────
   useEffect(() => {
-    supabase
-      .from('employees')
-      .select('id, first_name, last_name, job_title')
-      .eq('status', 'active')
-      .order('first_name')
-      .then(({ data }) => {
-        const list = data ?? []
+    db.getEmployees()
+      .then(data => {
+        const list = data.filter(e => e.status === 'active')
         setEmployees(list)
         if (list.length) setSelected(list[0])
-        setEmpLoading(false)
       })
+      .catch(() => {})
+      .finally(() => setEmpLoading(false))
   }, [])
 
   // ── fetch attendance when employee / month changes ─────────────────────────
@@ -67,16 +64,12 @@ export default function AttendanceCalendar() {
     const start = toDateStr(year, month, 1)
     const end   = new Date(year, month + 1, 0).toISOString().slice(0, 10)
 
-    const { data } = await supabase
-      .from('attendance')
-      .select('date, status')
-      .eq('employee_id', selected.id)
-      .gte('date', start)
-      .lte('date', end)
-
-    const map = {}
-    ;(data ?? []).forEach(r => { map[r.date] = r.status })
-    setAttMap(map)
+    try {
+      const all = await db.getAttendanceRange(start, end)
+      const map = {}
+      all.filter(r => r.employee_id === selected.id).forEach(r => { map[r.date] = r.status })
+      setAttMap(map)
+    } catch {}
     setLoading(false)
   }, [selected, year, month])
 
