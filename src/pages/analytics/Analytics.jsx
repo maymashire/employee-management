@@ -372,16 +372,18 @@ function PerformanceTab({ employees, attYear, bonusRows }) {
     return m
   }, [employees])
 
-  // Per-employee attendance stats
+  // Per-employee attendance stats (keyed by id; rows for deleted employees are skipped)
   const empScores = useMemo(() => {
     const map = {}
     attYear.forEach(r => {
-      const name = empMap[r.employee_id] ?? r.employee_id
-      if (!map[name]) map[name] = { name, total: 0, present: 0, late: 0, absent: 0 }
-      map[name].total++
-      if      (r.status === 'present') map[name].present++
-      else if (r.status === 'late')    map[name].late++
-      else if (r.status === 'absent')  map[name].absent++
+      const id   = r.employee_id
+      const name = empMap[id]
+      if (!name) return
+      if (!map[id]) map[id] = { id, name, total: 0, present: 0, late: 0, absent: 0 }
+      map[id].total++
+      if      (r.status === 'present') map[id].present++
+      else if (r.status === 'late')    map[id].late++
+      else if (r.status === 'absent')  map[id].absent++
     })
     return Object.values(map).map(e => ({
       ...e,
@@ -391,18 +393,26 @@ function PerformanceTab({ employees, attYear, bonusRows }) {
     })).sort((a, b) => b.score - a.score)
   }, [attYear, empMap])
 
-  // Per-employee bonus totals
-  const bonusData = useMemo(() => {
+  // Per-employee bonus totals (keyed by id)
+  const bonusById = useMemo(() => {
     const map = {}
     bonusRows.forEach(r => {
-      const name = r.employee_salary_config?.employee_name ?? empMap[r.employee_id] ?? r.employee_id
-      const firstName = name.split(' ')[0]
-      map[firstName] = (map[firstName] ?? 0) + Number(r.bonus || 0)
+      const id = r.employee_id ?? r.employee_salary_config?.employee_id
+      if (!id) return
+      map[id] = (map[id] ?? 0) + Number(r.bonus || 0)
     })
-    return Object.entries(map)
-      .map(([name, bonus]) => ({ name, bonus }))
-      .sort((a, b) => b.bonus - a.bonus)
-  }, [bonusRows, empMap])
+    return map
+  }, [bonusRows])
+
+  const bonusData = useMemo(() =>
+    Object.entries(bonusById)
+      .map(([id, bonus]) => ({
+        name: (empMap[id] ?? bonusRows.find(r => (r.employee_id ?? r.employee_salary_config?.employee_id) === id)
+          ?.employee_salary_config?.employee_name ?? 'Unknown').split(' ')[0],
+        bonus,
+      }))
+      .sort((a, b) => b.bonus - a.bonus),
+  [bonusById, bonusRows, empMap])
 
   // KPI derivations
   const best      = empScores[0]
@@ -459,17 +469,18 @@ function PerformanceTab({ employees, attYear, bonusRows }) {
           badge={<Activity size={20} className="text-indigo-500" />}
         >
           {!hasAtt ? <EmptyChart /> : (
-            <ResponsiveContainer width="100%" height={Math.max(220, empScores.length * 60)}>
+            <ResponsiveContainer width="100%" height={Math.max(240, empScores.length * 56)}>
               <BarChart
                 layout="vertical"
-                data={empScores.map(e => ({ ...e, name: e.shortName }))}
-                margin={{ top: 4, right: 30, left: 10, bottom: 4 }}
+                data={empScores}
+                margin={{ top: 4, right: 24, left: 0, bottom: 4 }}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
                 <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11, fill: '#94a3b8' }}
                   axisLine={false} tickLine={false} tickFormatter={v => `${v}%`} />
                 <YAxis type="category" dataKey="name" tick={{ fontSize: 12, fill: '#374151', fontWeight: 600 }}
-                  axisLine={false} tickLine={false} width={60} />
+                  axisLine={false} tickLine={false} width={120}
+                  tickFormatter={v => v.length > 16 ? `${v.slice(0, 15)}…` : v} />
                 <Tooltip
                   content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null
@@ -544,10 +555,10 @@ function PerformanceTab({ employees, attYear, bonusRows }) {
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {empScores.map((e, i) => {
-                  const bonus = bonusData.find(b => b.name === e.shortName)?.bonus ?? 0
+                  const bonus = bonusById[e.id] ?? 0
                   const barW  = `${e.score}%`
                   return (
-                    <tr key={e.name} className="hover:bg-gray-50/40 transition-colors">
+                    <tr key={e.id} className="hover:bg-gray-50/40 transition-colors">
                       <td className="px-5 py-4 text-gray-400 font-medium text-xs">{i + 1}</td>
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-2.5">
@@ -665,7 +676,8 @@ export default function Analytics() {
       employees.forEach(e => { empMap[e.id] = `${e.first_name} ${e.last_name}` })
       const map = {}
       attYear.forEach(r => {
-        const name = empMap[r.employee_id] ?? r.employee_id
+        const name = empMap[r.employee_id]
+        if (!name) return
         if (!map[name]) map[name] = { total: 0, present: 0, late: 0, absent: 0 }
         map[name].total++
         if      (r.status === 'present') map[name].present++
