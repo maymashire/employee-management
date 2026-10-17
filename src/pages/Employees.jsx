@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import * as db from '../lib/db'
 import {
   UserPlus, Search, Pencil, Trash2, X,
@@ -403,6 +404,20 @@ export default function EmployeesPage() {
     setLoading(true)
     Promise.all([fetchEmployees(), fetchDepartments()]).finally(() => setLoading(false))
   }, [fetchEmployees, fetchDepartments])
+
+  // Deep links from the dashboard / command palette: ?new=1, ?view=<id>, ?q=<text>
+  const [params, setParams] = useSearchParams()
+  useEffect(() => {
+    if (params.get('q')) setSearch(params.get('q'))
+    if (params.get('new')) { openAdd(); setParams({}, { replace: true }) }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const id = params.get('view')
+    if (!id || !employees.length) return
+    const emp = employees.find(e => e.id === id)
+    if (emp) setViewEmp(emp)
+    setParams({}, { replace: true })
+  }, [employees]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleCleanDuplicates() {
     if (!dupIds.length) return

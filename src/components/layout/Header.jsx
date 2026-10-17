@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { Bell, Search, Menu, ChevronDown, UserCircle2, KeyRound, SlidersHorizontal, UsersRound, LogOut } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { Avatar } from '../ui'
+import CommandPalette from '../CommandPalette'
 
 const PATH_TITLES = {
   '/dashboard':               'Dashboard',
@@ -32,11 +33,21 @@ export default function Header({ onMenuToggle }) {
   const { profile, displayName, fullEmail, roleLabel, avatarUrl, isAdmin, signOut } = useAuth()
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
   const menuRef = useRef(null)
 
   const pageTitle = PATH_TITLES[pathname] ?? 'WorkForce'
 
   useEffect(() => { setMenuOpen(false) }, [pathname])
+
+  // Ctrl/⌘ + K opens the command palette anywhere
+  useEffect(() => {
+    const onKey = e => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setPaletteOpen(o => !o) }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
   useEffect(() => {
     if (!menuOpen) return
     const close = e => { if (!menuRef.current?.contains(e.target)) setMenuOpen(false) }
@@ -84,11 +95,18 @@ export default function Header({ onMenuToggle }) {
       {/* Right */}
       <div className="flex items-center gap-1 shrink-0">
 
-        {/* Search button */}
-        <button aria-label="Search"
-          className="hidden sm:flex p-2 rounded-xl text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-colors">
+        {/* Search / command palette */}
+        <button aria-label="Search" onClick={() => setPaletteOpen(true)}
+          className="hidden md:flex items-center gap-2 pl-3 pr-2 py-1.5 mr-1 rounded-xl text-sm text-gray-400 bg-gray-50 border border-gray-200 hover:border-gray-300 hover:text-gray-600 transition-colors w-56">
+          <Search size={15} />
+          <span className="flex-1 text-left">Search…</span>
+          <kbd className="text-[10px] font-semibold border border-gray-200 bg-white rounded-md px-1.5 py-0.5">Ctrl K</kbd>
+        </button>
+        <button aria-label="Search" onClick={() => setPaletteOpen(true)}
+          className="md:hidden p-2 rounded-xl text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-colors">
           <Search size={16} />
         </button>
+        <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
 
         {/* Notification */}
         <button aria-label="Notifications"
