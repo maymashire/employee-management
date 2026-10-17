@@ -42,11 +42,32 @@ export async function addDepartment(data) {
   return { id: ref.id, ...payload }
 }
 
-export async function updateDepartment(id, data) {
-  await updateDoc(doc(db, 'departments', id), data)
+async function employeesInDepartment(id) {
+  const snap = await getDocs(query(collection(db, 'employees'), where('department_id', '==', id)))
+  return snap.docs.map(d => d.id)
 }
 
+/** Updates a department; a rename is propagated to the name denormalised on its employees. */
+export async function updateDepartment(id, data) {
+  await updateDoc(doc(db, 'departments', id), data)
+  if (data.name) {
+    const ids = await employeesInDepartment(id)
+    for (let i = 0; i < ids.length; i += 450) {
+      const batch = writeBatch(db)
+      ids.slice(i, i + 450).forEach(eid => batch.update(doc(db, 'employees', eid), { departments: { name: data.name } }))
+      await batch.commit()
+    }
+  }
+}
+
+/** Deletes a department and unassigns its employees. */
 export async function deleteDepartment(id) {
+  const ids = await employeesInDepartment(id)
+  for (let i = 0; i < ids.length; i += 450) {
+    const batch = writeBatch(db)
+    ids.slice(i, i + 450).forEach(eid => batch.update(doc(db, 'employees', eid), { department_id: null, departments: null }))
+    await batch.commit()
+  }
   await deleteDoc(doc(db, 'departments', id))
 }
 
@@ -91,6 +112,36 @@ export async function updateEmployee(id, data) {
 
 export async function deleteEmployee(id) {
   await deleteDoc(doc(db, 'employees', id))
+}
+
+/**
+ * Patch many employees at once. When `department_id` is in the patch the
+ * department name is denormalised once and applied to all of them.
+ * Returns the patch actually written.
+ */
+export async function batchUpdateEmployees(ids, data) {
+  const patch = { ...data }
+  if ('department_id' in data) {
+    patch.departments = null
+    if (data.department_id) {
+      const dSnap = await getDoc(doc(db, 'departments', data.department_id))
+      if (dSnap.exists()) patch.departments = { name: dSnap.data().name }
+    }
+  }
+  for (let i = 0; i < ids.length; i += 450) {
+    const batch = writeBatch(db)
+    ids.slice(i, i + 450).forEach(id => batch.update(doc(db, 'employees', id), patch))
+    await batch.commit()
+  }
+  return patch
+}
+
+export async function batchDeleteEmployees(ids) {
+  for (let i = 0; i < ids.length; i += 450) {
+    const batch = writeBatch(db)
+    ids.slice(i, i + 450).forEach(id => batch.delete(doc(db, 'employees', id)))
+    await batch.commit()
+  }
 }
 
 // ── ATTENDANCE ────────────────────────────────────────────────────────────────

@@ -1,759 +1,409 @@
-import { useState, useEffect, useMemo } from 'react'
-import { getEmployees, getAttendanceRange, getPayrollRecordsByYear } from '../../lib/db'
+/**
+ * Analytics — yearly people analytics in three views:
+ *   Workforce   — headcount growth, hires, departments, status, tenure
+ *   Attendance  — monthly status mix, late vs absent, weekday & department rates
+ *   Performance — attendance scorecard per employee (+ bonuses for payroll roles)
+ */
+import { useState, useEffect, useMemo, useRef } from 'react'
+import * as db from '../../lib/db'
 import {
-  Users, UserCheck, Star, TrendingUp, Activity,
-  FileText, Table, Loader2, Clock, UserX,
-  Award, Target, Zap,
-} from 'lucide-react'
-import {
-  LineChart, Line, BarChart, Bar, AreaChart, Area,
-  XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Legend, Cell,
+  BarChart, Bar, AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
+import {
+  Users, UserCheck, Star, Activity, UserPlus, CalendarRange, Building2, Clock, UserX, Timer, Award,
+  Target, Gift, Download, Printer, RefreshCw, Hourglass, ArrowUpDown, TrendingUp, ShieldCheck,
+} from 'lucide-react'
+import { useAuth } from '../../context/AuthContext'
+import { Avatar, SearchBox, downloadCSV } from '../../components/ui'
+import { Panel, KpiTile, Delta, TrendLegend } from '../dashboard/widgets'
+import { EMP_STATUS, EMP_STATUS_KEYS, empName, tenureMonths } from '../../lib/people'
+import { ATT_STATUS, STACK_KEYS, summarize, parseDate, fmtClock, toDateStr } from '../../lib/attendance'
 
-// ── Constants ──────────────────────────────────────────────────────────────────
-const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-const DAY_LABELS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
-// Day index: JS getDay() gives 0=Sun … 6=Sat; remap to Mon-first
-const JS_DAY_TO_MON_FIRST = [6,0,1,2,3,4,5] // Mon=0 … Sun=6
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const DOW    = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const BLUE   = '#2a78d6'
+const USD0   = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
+const money  = n => USD0.format(Number(n) || 0)
+const AXIS   = { fontSize: 10, fill: '#94a3b8' }
 
-const fmt$ = n =>
-  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n ?? 0)
-
-// ── CSV helper ─────────────────────────────────────────────────────────────────
-function downloadCSV(rows, filename) {
-  if (!rows.length) return
-  const keys = Object.keys(rows[0])
-  const csv = [
-    keys.join(','),
-    ...rows.map(r => keys.map(k => JSON.stringify(r[k] ?? '')).join(',')),
-  ].join('\n')
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
-  const url  = URL.createObjectURL(blob)
-  const a    = Object.assign(document.createElement('a'), { href: url, download: filename })
-  document.body.appendChild(a); a.click(); document.body.removeChild(a)
-  URL.revokeObjectURL(url)
-}
-
-// ── Tabs ───────────────────────────────────────────────────────────────────────
 const TABS = [
-  { id: 'employee',    label: 'Employee',    Icon: Users     },
+  { id: 'workforce',   label: 'Workforce',   Icon: Users },
   { id: 'attendance',  label: 'Attendance',  Icon: UserCheck },
-  { id: 'performance', label: 'Performance', Icon: Star      },
+  { id: 'performance', label: 'Performance', Icon: Star },
 ]
 
-// ── Sub-components ─────────────────────────────────────────────────────────────
-function ChartTooltip({ active, payload, label, suffix = '', prefix = '' }) {
+function Tip({ active, payload, suffix = '', fmt }) {
   if (!active || !payload?.length) return null
+  const d = payload[0].payload
   return (
-    <div className="bg-white border border-gray-100 rounded-xl shadow-lg px-3.5 py-2.5 text-xs">
-      <p className="font-semibold text-gray-500 mb-1.5">{label}</p>
+    <div className="bg-white border border-gray-100 rounded-xl shadow-lg px-3.5 py-2.5 text-xs min-w-[140px]">
+      <p className="font-bold text-gray-800 mb-1">{d.title ?? d.label ?? d.name}</p>
       {payload.map(p => (
-        <p key={p.dataKey ?? p.name} className="flex items-center gap-1.5" style={{ color: p.color ?? p.fill }}>
-          <span className="w-2 h-2 rounded-full shrink-0" style={{ background: p.color ?? p.fill }} />
-          {p.name}: <span className="font-bold ml-0.5">{prefix}{p.value}{suffix}</span>
+        <p key={p.dataKey} className="flex items-center justify-between gap-4 text-gray-500 py-0.5">
+          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm" style={{ background: p.color ?? p.fill }} />{p.name}</span>
+          <span className="font-semibold text-gray-800 tabular-nums">{p.value == null ? '—' : fmt ? fmt(p.value) : `${p.value}${suffix}`}</span>
         </p>
       ))}
     </div>
   )
 }
 
-function KpiCard({ label, value, sub, Icon, iconBg, iconColor }) {
+function Legend2({ items }) {
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center justify-between gap-4">
-      <div className="min-w-0">
-        <p className="text-xs text-gray-500 font-medium">{label}</p>
-        <p className="text-2xl font-extrabold text-gray-900 mt-1 tracking-tight truncate">{value}</p>
-        {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
-      </div>
-      <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${iconBg}`}>
-        <Icon size={22} className={iconColor} />
-      </div>
-    </div>
+    <span className="flex items-center gap-3 text-[11px] text-gray-500 mt-1">
+      {items.map(([label, color]) => <span key={label} className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm" style={{ background: color }} />{label}</span>)}
+    </span>
   )
 }
 
-function ChartCard({ title, subtitle, badge, badgeBg, children }) {
+function HBars({ rows, valueLabel = v => v, color = BLUE, max }) {
+  const m = max ?? Math.max(1, ...rows.map(r => r.value ?? 0))
+  if (!rows.length) return <p className="text-sm text-gray-400 py-10 text-center">No data yet</p>
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-      <div className="flex items-start justify-between mb-5">
-        <div>
-          <h3 className="text-base font-bold text-gray-900">{title}</h3>
-          <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>
-        </div>
-        {badge && (
-          <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${badgeBg}`}>
-            {badge}
+    <div className="space-y-2.5">
+      {rows.map(r => (
+        <div key={r.name} title={`${r.name}: ${valueLabel(r.value)}`}>
+          <div className="flex items-center justify-between text-xs mb-1">
+            <span className="font-medium text-gray-700 truncate">{r.name}</span>
+            <span className="font-bold text-gray-800 tabular-nums">{valueLabel(r.value)}{r.sub && <span className="text-gray-300 font-medium"> · {r.sub}</span>}</span>
           </div>
-        )}
-      </div>
-      {children}
+          <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+            <div className="h-full rounded-full" style={{ width: `${((r.value ?? 0) / m) * 100}%`, background: r.color ?? color, transition: 'width .5s ease' }} />
+          </div>
+        </div>
+      ))}
     </div>
   )
 }
 
-function EmptyChart({ height = 220, message = 'No data yet' }) {
-  return (
-    <div className={`flex items-center justify-center text-sm text-gray-300`} style={{ height }}>
-      {message}
-    </div>
-  )
-}
-
-// ════════════════════════════════════════════════════════════════════════════════
-// EMPLOYEE TAB
-// ════════════════════════════════════════════════════════════════════════════════
-function EmployeeTab({ employees }) {
+// ── Workforce ─────────────────────────────────────────────────────────────────
+function WorkforceTab({ employees, year }) {
+  const active = employees.filter(e => e.status === 'active')
   const now = new Date()
+  const endOf = m => { const d = new Date(year, m + 1, 0); const t = toDateStr(d); return t > toDateStr(now) ? toDateStr(now) : t }
+  const lastMonth = year === now.getFullYear() ? now.getMonth() : 11
+  const months = MONTHS.slice(0, lastMonth + 1).map((label, i) => ({
+    label, title: `${label} ${year}`,
+    headcount: active.filter(e => !e.hire_date || e.hire_date <= endOf(i)).length,
+    hires: employees.filter(e => e.hire_date?.startsWith(`${year}-${String(i + 1).padStart(2, '0')}`)).length,
+  }))
+  const hiresYear = months.reduce((s, m) => s + m.hires, 0)
+  const startHead = active.filter(e => !e.hire_date || e.hire_date < `${year}-01-01`).length
+  const tenures = active.map(e => tenureMonths(e.hire_date)).filter(v => v != null)
+  const avgTenure = tenures.length ? tenures.reduce((s, v) => s + v, 0) / tenures.length / 12 : null
+  const nonActive = employees.length - active.length
 
-  const monthlyData = useMemo(() => {
-    const result = []
-    for (let i = 8; i >= 0; i--) {
-      const d          = new Date(now.getFullYear(), now.getMonth() - i, 1)
-      const endOfMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59)
-      result.push({
-        month: d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
-        count: employees.filter(e => e.hire_date && new Date(e.hire_date) <= endOfMonth).length,
-      })
-    }
-    return result
-  }, [employees]) // eslint-disable-line
-
-  const deptData = useMemo(() => {
-    const map = {}
-    employees.filter(e => e.status === 'active').forEach(e => {
-      const dept = e.departments?.name ?? 'Unassigned'
-      map[dept] = (map[dept] ?? 0) + 1
-    })
-    return Object.entries(map)
-      .map(([dept, count]) => ({ dept, count }))
-      .sort((a, b) => b.count - a.count)
-  }, [employees])
-
-  const totalActive = employees.filter(e => e.status === 'active').length
+  const depts = Object.entries(active.reduce((m, e) => { const k = e.departments?.name ?? 'Unassigned'; m[k] = (m[k] ?? 0) + 1; return m }, {}))
+    .map(([name, value]) => ({ name, value, sub: `${Math.round((value / (active.length || 1)) * 100)}%` })).sort((a, b) => b.value - a.value)
+  const status = EMP_STATUS_KEYS.map(k => ({ name: EMP_STATUS[k].label, value: employees.filter(e => e.status === k).length, color: { active: '#10b981', inactive: '#94a3b8', suspended: '#f59e0b', terminated: '#f43f5e' }[k] }))
+  const BUCKETS = [['< 6 months', 0, 6], ['6–12 months', 6, 12], ['1–2 years', 12, 24], ['2–5 years', 24, 60], ['5+ years', 60, Infinity]]
+  const tenureRows = BUCKETS.map(([name, a, b]) => ({ name, value: tenures.filter(t => t >= a && t < b).length }))
 
   return (
     <>
-      {/* Mini stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {[
-          { label: 'Total Employees', value: employees.length, cls: 'text-indigo-600', bg: 'bg-indigo-50' },
-          { label: 'Active Staff',    value: totalActive,      cls: 'text-emerald-600', bg: 'bg-emerald-50' },
-          { label: 'Departments',     value: deptData.length,  cls: 'text-purple-600',  bg: 'bg-purple-50' },
-        ].map(({ label, value, cls, bg }) => (
-          <div key={label} className={`${bg} rounded-2xl border border-gray-100 px-5 py-4`}>
-            <p className="text-xs font-medium text-gray-500">{label}</p>
-            <p className={`text-3xl font-extrabold mt-1 ${cls}`}>{value}</p>
-          </div>
-        ))}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <KpiTile label="Active headcount" value={active.length} Icon={Users} tone="bg-indigo-50 text-indigo-500"
+          delta={<Delta value={active.length - startHead} label={`since Jan ${year}`} />} series={months.map(m => m.headcount)} color="#6366f1" sub={`${employees.length} people on record`} />
+        <KpiTile label={`Hires in ${year}`} value={hiresYear} Icon={UserPlus} tone="bg-emerald-50 text-emerald-500"
+          delta={<span className="text-[11px] text-gray-400">{(hiresYear / Math.max(1, months.length)).toFixed(1)} per month</span>} series={months.map(m => m.hires)} color="#10b981" />
+        <KpiTile label="Average tenure" value={avgTenure == null ? '—' : `${avgTenure.toFixed(1)} yrs`} Icon={CalendarRange} tone="bg-sky-50 text-sky-500"
+          delta={<span className="text-[11px] text-gray-400">{tenures.filter(t => t < 12).length} under one year</span>} />
+        <KpiTile label="Not active" value={nonActive} Icon={ShieldCheck} tone="bg-amber-50 text-amber-500"
+          delta={<span className="text-[11px] text-gray-400">{employees.length ? Math.round((nonActive / employees.length) * 100) : 0}% of all records</span>} sub="inactive, suspended or terminated" />
       </div>
-
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-
-        {/* Monthly Headcount — teal smooth line */}
-        <ChartCard
-          title="Monthly Headcount"
-          subtitle="Growth trajectory"
-          badgeBg="bg-blue-50"
-          badge={<TrendingUp size={20} className="text-blue-500" />}
-        >
-          {monthlyData.every(d => d.count === 0)
-            ? <EmptyChart />
-            : (
-              <ResponsiveContainer width="100%" height={240}>
-                <LineChart data={monthlyData} margin={{ top: 6, right: 6, left: -22, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                  <Tooltip content={<ChartTooltip />} cursor={{ stroke: '#00bfa5', strokeWidth: 1, strokeDasharray: '4 2' }} />
-                  <Line
-                    type="monotone" dataKey="count" name="Employees"
-                    stroke="#00bfa5" strokeWidth={2.5}
-                    dot={{ fill: '#00bfa5', r: 5, stroke: '#fff', strokeWidth: 2.5 }}
-                    activeDot={{ r: 7, fill: '#00bfa5', stroke: '#fff', strokeWidth: 2.5 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            )}
-        </ChartCard>
-
-        {/* Dept Headcount — blue bars */}
-        <ChartCard
-          title="Dept Headcount"
-          subtitle="Current distribution"
-          badgeBg="bg-purple-50"
-          badge={<Users size={20} className="text-purple-500" />}
-        >
-          {deptData.length === 0
-            ? <EmptyChart />
-            : (
-              <ResponsiveContainer width="100%" height={240}>
-                <BarChart data={deptData} margin={{ top: 6, right: 6, left: -22, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                  <XAxis dataKey="dept" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                  <Tooltip content={<ChartTooltip />} cursor={{ fill: '#f8fafc' }} />
-                  <Bar dataKey="count" name="Employees" fill="#1e3a8a" radius={[4, 4, 0, 0]} maxBarSize={52} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-        </ChartCard>
+      <div className="grid lg:grid-cols-12 gap-5">
+        <Panel className="lg:col-span-7" title="Headcount growth" sub={`Active employees at month end · ${year}`} Icon={TrendingUp}>
+          <ResponsiveContainer width="100%" height={250}>
+            <AreaChart data={months} margin={{ top: 6, right: 8, left: -20, bottom: 0 }}>
+              <defs><linearGradient id="an-head" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={BLUE} stopOpacity={0.22} /><stop offset="100%" stopColor={BLUE} stopOpacity={0} /></linearGradient></defs>
+              <CartesianGrid stroke="#f1f5f9" vertical={false} />
+              <XAxis dataKey="label" tick={AXIS} axisLine={false} tickLine={false} />
+              <YAxis allowDecimals={false} tick={AXIS} axisLine={false} tickLine={false} />
+              <Tooltip content={<Tip />} cursor={{ stroke: '#cbd5e1', strokeDasharray: '4 3' }} />
+              <Area type="monotone" dataKey="headcount" name="Headcount" stroke={BLUE} strokeWidth={2} fill="url(#an-head)" dot={{ r: 3, fill: BLUE, stroke: '#fff', strokeWidth: 1.5 }} activeDot={{ r: 5 }} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </Panel>
+        <Panel className="lg:col-span-5" title="Hires per month" sub={`${hiresYear} new hires in ${year}`} Icon={UserPlus}>
+          <ResponsiveContainer width="100%" height={250}>
+            <BarChart data={months} margin={{ top: 6, right: 4, left: -20, bottom: 0 }}>
+              <CartesianGrid stroke="#f1f5f9" vertical={false} />
+              <XAxis dataKey="label" tick={AXIS} axisLine={false} tickLine={false} />
+              <YAxis allowDecimals={false} tick={AXIS} axisLine={false} tickLine={false} />
+              <Tooltip content={<Tip />} cursor={{ fill: '#f8fafc', radius: 6 }} />
+              <Bar dataKey="hires" name="Hires" fill={BLUE} radius={[4, 4, 0, 0]} maxBarSize={30} />
+            </BarChart>
+          </ResponsiveContainer>
+        </Panel>
+      </div>
+      <div className="grid lg:grid-cols-3 gap-5">
+        <Panel title="Departments" sub="Active employees" Icon={Building2}><HBars rows={depts} /></Panel>
+        <Panel title="Employment status" sub="All records" Icon={UserCheck}><HBars rows={status} max={Math.max(1, employees.length)} /></Panel>
+        <Panel title="Tenure" sub="Active employees by time with the company" Icon={Hourglass}><HBars rows={tenureRows} /></Panel>
       </div>
     </>
   )
 }
 
-// ════════════════════════════════════════════════════════════════════════════════
-// ATTENDANCE TAB
-// ════════════════════════════════════════════════════════════════════════════════
-function AttendanceTab({ attYear, attMonth }) {
-  const yr = new Date().getFullYear()
-
-  // ── KPIs from this-month data ──
-  const kpis = useMemo(() => {
-    const total   = attMonth.length
-    const present = attMonth.filter(r => r.status === 'present').length
-    const late    = attMonth.filter(r => r.status === 'late').length
-    const absent  = attMonth.filter(r => r.status === 'absent').length
-    const rate    = total > 0 ? (((present + late) / total) * 100).toFixed(1) : '0.0'
-    const onTime  = total > 0 ? ((present / total) * 100).toFixed(1) : '0.0'
-    return { total, present, late, absent, rate, onTime }
-  }, [attMonth])
-
-  // ── Monthly late & absence trend (Jan–Dec) ──
-  const monthlyTrend = useMemo(() =>
-    MONTH_ABBR.map((month, i) => {
-      const rows = attYear.filter(r => parseInt(r.date.slice(5, 7), 10) - 1 === i)
-      return {
-        month,
-        Late:   rows.filter(r => r.status === 'late').length,
-        Absent: rows.filter(r => r.status === 'absent').length,
-      }
-    }),
-  [attYear])
-
-  // ── Dept breakdown for THIS year ──
-  // (uses empDeptMap passed in via closure)
-  const dayPattern = useMemo(() => {
-    const slots = DAY_LABELS.map(day => ({ day, Present: 0, Late: 0, Absent: 0 }))
-    attYear.forEach(r => {
-      const jsDay  = new Date(r.date + 'T00:00:00').getDay()
-      const idx    = JS_DAY_TO_MON_FIRST[jsDay]
-      const s      = slots[idx]
-      if (!s) return
-      if (r.status === 'present') s.Present++
-      else if (r.status === 'late')    s.Late++
-      else if (r.status === 'absent')  s.Absent++
-    })
-    return slots
-  }, [attYear])
-
-  const hasMonth = attMonth.length > 0
-  const hasYear  = attYear.length  > 0
+// ── Attendance ────────────────────────────────────────────────────────────────
+function AttendanceTab({ employees, att, year }) {
+  const activeIds = new Set(employees.filter(e => e.status === 'active').map(e => e.id))
+  const recs = att.filter(r => activeIds.has(r.employee_id))
+  const S = summarize(recs)
+  const months = MONTHS.map((label, i) => {
+    const s = summarize(recs.filter(r => Number(r.date.slice(5, 7)) === i + 1))
+    return { label, title: `${label} ${year}`, present: s.present, late: s.late, half_day: s.half_day, absent: s.absent, rate: s.total ? Math.round(s.rate ?? 0) : null, onTime: s.onTime == null ? null : Math.round(s.onTime) }
+  })
+  const withData = months.filter(m => m.rate != null)
+  const lastTwo  = withData.slice(-2)
+  const weekday = DOW.map((label, i) => { const s = summarize(recs.filter(r => parseDate(r.date).getDay() === i)); return { label, title: label, rate: s.total ? Math.round(s.rate ?? 0) : null } })
+  const deptRows = Object.entries(recs.reduce((m, r) => {
+    const e = employees.find(x => x.id === r.employee_id); const k = e?.departments?.name ?? 'Unassigned'; (m[k] ??= []).push(r); return m
+  }, {})).map(([name, list]) => { const s = summarize(list); return { name, value: s.rate == null ? 0 : Math.round(s.rate), sub: `${s.late} late` } }).sort((a, b) => b.value - a.value)
 
   return (
     <>
-      {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard label="Attendance Rate"  value={`${kpis.rate}%`}    sub="present + late / total"       Icon={Activity} iconBg="bg-indigo-50"  iconColor="text-indigo-500" />
-        <KpiCard label="On-Time Rate"     value={`${kpis.onTime}%`}  sub="present only this month"      Icon={Zap}      iconBg="bg-emerald-50" iconColor="text-emerald-500" />
-        <KpiCard label="Late Arrivals"    value={kpis.late}          sub={`this month (${MONTH_ABBR[new Date().getMonth()]})`} Icon={Clock}    iconBg="bg-amber-50"   iconColor="text-amber-500" />
-        <KpiCard label="Absences"         value={kpis.absent}        sub={`this month (${MONTH_ABBR[new Date().getMonth()]})`} Icon={UserX}    iconBg="bg-red-50"     iconColor="text-red-500" />
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <KpiTile label="Attendance rate" value={S.rate == null ? '—' : `${Math.round(S.rate)}%`} Icon={Activity} tone="bg-emerald-50 text-emerald-500"
+          delta={<Delta value={lastTwo.length === 2 ? lastTwo[1].rate - lastTwo[0].rate : null} suffix=" pts" label="latest month vs previous" />} series={months.map(m => m.rate)} color="#10b981" />
+        <KpiTile label="On-time rate" value={S.onTime == null ? '—' : `${Math.round(S.onTime)}%`} Icon={Timer} tone="bg-sky-50 text-sky-500"
+          delta={<span className="text-[11px] text-gray-400">Avg check-in {fmtClock(S.avgIn)}</span>} series={months.map(m => m.onTime)} color="#0ea5e9" />
+        <KpiTile label="Late arrivals" value={S.late} Icon={Clock} tone="bg-amber-50 text-amber-500"
+          delta={<span className="text-[11px] text-gray-400">{withData.length ? (S.late / withData.length).toFixed(1) : 0} per month</span>} series={months.map(m => m.late)} color="#f59e0b" />
+        <KpiTile label="Absences" value={S.absent} Icon={UserX} tone="bg-rose-50 text-rose-500"
+          delta={<span className="text-[11px] text-gray-400">{S.half_day} half days · {S.holiday} holidays</span>} series={months.map(m => m.absent)} color="#f43f5e" />
       </div>
-
-      {/* Charts row 1 */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-
-        {/* Late & Absence trend — dual area */}
-        <ChartCard
-          title="Late Arrivals & Absences"
-          subtitle={`Monthly trend — ${yr}`}
-          badgeBg="bg-amber-50"
-          badge={<Clock size={20} className="text-amber-500" />}
-        >
-          {!hasYear ? <EmptyChart /> : (
-            <ResponsiveContainer width="100%" height={240}>
-              <AreaChart data={monthlyTrend} margin={{ top: 6, right: 6, left: -22, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="lateGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor="#f59e0b" stopOpacity={0.25} />
-                    <stop offset="95%" stopColor="#f59e0b" stopOpacity={0}    />
-                  </linearGradient>
-                  <linearGradient id="absentGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor="#ef4444" stopOpacity={0.2} />
-                    <stop offset="95%" stopColor="#ef4444" stopOpacity={0}   />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                <Tooltip content={<ChartTooltip />} />
-                <Legend iconType="circle" iconSize={8}
-                  wrapperStyle={{ fontSize: 11, paddingTop: 14 }}
-                  formatter={v => <span style={{ color: '#64748b' }}>{v}</span>}
-                />
-                <Area type="monotone" dataKey="Late"   stroke="#f59e0b" strokeWidth={2} fill="url(#lateGrad)"
-                  dot={{ r: 4, fill: '#f59e0b', stroke: '#fff', strokeWidth: 2 }}
-                  activeDot={{ r: 6, stroke: '#fff', strokeWidth: 2 }} />
-                <Area type="monotone" dataKey="Absent" stroke="#ef4444" strokeWidth={2} fill="url(#absentGrad)"
-                  dot={{ r: 4, fill: '#ef4444', stroke: '#fff', strokeWidth: 2 }}
-                  activeDot={{ r: 6, stroke: '#fff', strokeWidth: 2 }} />
-              </AreaChart>
-            </ResponsiveContainer>
-          )}
-        </ChartCard>
-
-        {/* Day of week pattern — stacked bar */}
-        <ChartCard
-          title="Attendance by Day of Week"
-          subtitle={`${yr} — which days have the most absences`}
-          badgeBg="bg-rose-50"
-          badge={<UserX size={20} className="text-rose-500" />}
-        >
-          {!hasYear ? <EmptyChart /> : (
-            <ResponsiveContainer width="100%" height={240}>
-              <BarChart data={dayPattern} margin={{ top: 6, right: 6, left: -22, bottom: 0 }} barCategoryGap="35%">
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                <Tooltip content={<ChartTooltip />} cursor={{ fill: '#f8fafc' }} />
-                <Legend iconType="square" iconSize={8}
-                  wrapperStyle={{ fontSize: 11, paddingTop: 14 }}
-                  formatter={v => <span style={{ color: '#64748b' }}>{v}</span>}
-                />
-                <Bar dataKey="Absent"  stackId="s" fill="#ef4444" radius={[0,0,0,0]} />
-                <Bar dataKey="Late"    stackId="s" fill="#f59e0b" radius={[0,0,0,0]} />
-                <Bar dataKey="Present" stackId="s" fill="#10b981" radius={[4,4,0,0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </ChartCard>
+      <div className="grid lg:grid-cols-12 gap-5">
+        <Panel className="lg:col-span-7" title="Monthly status mix" sub={`${S.total} records in ${year}`} Icon={UserCheck} action={<TrendLegend />}>
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart data={months} margin={{ top: 6, right: 4, left: -18, bottom: 0 }}>
+              <CartesianGrid stroke="#f1f5f9" vertical={false} />
+              <XAxis dataKey="label" tick={AXIS} axisLine={false} tickLine={false} />
+              <YAxis allowDecimals={false} tick={AXIS} axisLine={false} tickLine={false} />
+              <Tooltip content={<Tip />} cursor={{ fill: '#f8fafc', radius: 6 }} />
+              {STACK_KEYS.map((k, i) => <Bar key={k} dataKey={k} name={ATT_STATUS[k].label} stackId="a" fill={ATT_STATUS[k].color} stroke="#fff" strokeWidth={1.5} maxBarSize={30} radius={i === STACK_KEYS.length - 1 ? [4, 4, 0, 0] : 0} />)}
+            </BarChart>
+          </ResponsiveContainer>
+        </Panel>
+        <Panel className="lg:col-span-5" title="Late vs absent" sub="Count per month" Icon={Clock}
+          action={<Legend2 items={[['Late', ATT_STATUS.late.color], ['Absent', ATT_STATUS.absent.color]]} />}>
+          <ResponsiveContainer width="100%" height={260}>
+            <LineChart data={months} margin={{ top: 6, right: 8, left: -20, bottom: 0 }}>
+              <CartesianGrid stroke="#f1f5f9" vertical={false} />
+              <XAxis dataKey="label" tick={AXIS} axisLine={false} tickLine={false} />
+              <YAxis allowDecimals={false} tick={AXIS} axisLine={false} tickLine={false} />
+              <Tooltip content={<Tip />} cursor={{ stroke: '#cbd5e1', strokeDasharray: '4 3' }} />
+              <Line type="monotone" dataKey="late" name="Late" stroke={ATT_STATUS.late.color} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+              <Line type="monotone" dataKey="absent" name="Absent" stroke={ATT_STATUS.absent.color} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </Panel>
       </div>
-
-      {/* Summary stats row */}
-      {hasMonth && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <h3 className="text-sm font-bold text-gray-800 mb-4">This Month at a Glance</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {[
-              { label: 'Marked Records', value: kpis.total,   bar: 100,  color: 'bg-indigo-500' },
-              { label: 'Present',        value: kpis.present, bar: kpis.total > 0 ? Math.round(kpis.present / kpis.total * 100) : 0, color: 'bg-emerald-500' },
-              { label: 'Late',           value: kpis.late,    bar: kpis.total > 0 ? Math.round(kpis.late    / kpis.total * 100) : 0, color: 'bg-amber-400'  },
-              { label: 'Absent',         value: kpis.absent,  bar: kpis.total > 0 ? Math.round(kpis.absent  / kpis.total * 100) : 0, color: 'bg-red-400'    },
-            ].map(({ label, value, bar, color }) => (
-              <div key={label}>
-                <div className="flex items-center justify-between text-xs mb-1.5">
-                  <span className="text-gray-500 font-medium">{label}</span>
-                  <span className="font-bold text-gray-900">{value}</span>
-                </div>
-                <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                  <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${bar}%` }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <div className="grid lg:grid-cols-2 gap-5">
+        <Panel title="By weekday" sub="Average attendance rate" Icon={CalendarRange}>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={weekday} margin={{ top: 6, right: 4, left: -18, bottom: 0 }}>
+              <CartesianGrid stroke="#f1f5f9" vertical={false} />
+              <XAxis dataKey="label" tick={AXIS} axisLine={false} tickLine={false} />
+              <YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} tick={AXIS} axisLine={false} tickLine={false} />
+              <Tooltip content={<Tip suffix="%" />} cursor={{ fill: '#f8fafc', radius: 6 }} />
+              <Bar dataKey="rate" name="Attendance" fill={BLUE} radius={[4, 4, 0, 0]} maxBarSize={36} />
+            </BarChart>
+          </ResponsiveContainer>
+        </Panel>
+        <Panel title="By department" sub="Attendance rate" Icon={Building2}><HBars rows={deptRows} max={100} valueLabel={v => `${v}%`} color="#10b981" /></Panel>
+      </div>
     </>
   )
 }
 
-// ════════════════════════════════════════════════════════════════════════════════
-// PERFORMANCE TAB
-// ════════════════════════════════════════════════════════════════════════════════
-function PerformanceTab({ employees, attYear, bonusRows }) {
-  const yr = new Date().getFullYear()
+// ── Performance ───────────────────────────────────────────────────────────────
+const P_SORTS = {
+  score:  { label: 'Attendance score', fn: (a, b) => b.score - a.score },
+  punct:  { label: 'Punctuality',      fn: (a, b) => b.punct - a.punct },
+  late:   { label: 'Most late',        fn: (a, b) => b.s.late - a.s.late },
+  absent: { label: 'Most absent',      fn: (a, b) => b.s.absent - a.s.absent },
+  bonus:  { label: 'Bonus',            fn: (a, b) => b.bonus - a.bonus },
+}
+const scoreColor = v => (v >= 90 ? '#10b981' : v >= 75 ? '#2a78d6' : v >= 60 ? '#f59e0b' : '#f43f5e')
 
-  // Map employee_id → full name
-  const empMap = useMemo(() => {
-    const m = {}
-    employees.forEach(e => { m[e.id] = `${e.first_name} ${e.last_name}` })
+function PerformanceTab({ employees, att, payroll, canPay, year }) {
+  const [q, setQ] = useState('')
+  const [sort, setSort] = useState('score')
+  const bonusBy = useMemo(() => payroll.reduce((m, r) => {
+    const id = r.employee_id ?? r.employee_salary_config?.employee_id
+    if (id) m[id] = (m[id] ?? 0) + (Number(r.bonus) || 0)
     return m
-  }, [employees])
+  }, {}), [payroll])
 
-  // Per-employee attendance stats (keyed by id; rows for deleted employees are skipped)
-  const empScores = useMemo(() => {
-    const map = {}
-    attYear.forEach(r => {
-      const id   = r.employee_id
-      const name = empMap[id]
-      if (!name) return
-      if (!map[id]) map[id] = { id, name, total: 0, present: 0, late: 0, absent: 0 }
-      map[id].total++
-      if      (r.status === 'present') map[id].present++
-      else if (r.status === 'late')    map[id].late++
-      else if (r.status === 'absent')  map[id].absent++
-    })
-    return Object.values(map).map(e => ({
-      ...e,
-      shortName:   e.name.split(' ')[0],
-      score:       e.total > 0 ? Math.round(((e.present + e.late) / e.total) * 100) : 0,
-      punctuality: e.total > 0 ? Math.round((e.present / e.total) * 100) : 0,
-    })).sort((a, b) => b.score - a.score)
-  }, [attYear, empMap])
+  const rows = useMemo(() => employees.filter(e => e.status === 'active').map(e => {
+    const s = summarize(att.filter(r => r.employee_id === e.id))
+    return { emp: e, s, score: s.rate == null ? 0 : Math.round(s.rate), punct: s.onTime == null ? 0 : Math.round(s.onTime), bonus: bonusBy[e.id] ?? 0 }
+  }).filter(r => r.s.total > 0), [employees, att, bonusBy])
 
-  // Per-employee bonus totals (keyed by id)
-  const bonusById = useMemo(() => {
-    const map = {}
-    bonusRows.forEach(r => {
-      const id = r.employee_id ?? r.employee_salary_config?.employee_id
-      if (!id) return
-      map[id] = (map[id] ?? 0) + Number(r.bonus || 0)
-    })
-    return map
-  }, [bonusRows])
-
-  const bonusData = useMemo(() =>
-    Object.entries(bonusById)
-      .map(([id, bonus]) => ({
-        name: (empMap[id] ?? bonusRows.find(r => (r.employee_id ?? r.employee_salary_config?.employee_id) === id)
-          ?.employee_salary_config?.employee_name ?? 'Unknown').split(' ')[0],
-        bonus,
-      }))
-      .sort((a, b) => b.bonus - a.bonus),
-  [bonusById, bonusRows, empMap])
-
-  // KPI derivations
-  const best      = empScores[0]
-  const topPunct  = [...empScores].sort((a, b) => b.punctuality - a.punctuality)[0]
-  const avgScore  = empScores.length > 0
-    ? Math.round(empScores.reduce((s, e) => s + e.score, 0) / empScores.length)
-    : 0
-  const totalBonus = bonusRows.reduce((s, r) => s + Number(r.bonus || 0), 0)
-
-  const hasAtt   = attYear.length > 0
-  const hasBonus = bonusData.some(d => d.bonus > 0)
-
-  // Color for score bar
-  const scoreColor = pct => pct >= 80 ? '#10b981' : pct >= 60 ? '#f59e0b' : '#ef4444'
+  const shown = rows.filter(r => !q || empName(r.emp).toLowerCase().includes(q.toLowerCase())).sort(P_SORTS[sort].fn)
+  const best  = [...rows].sort(P_SORTS.score.fn)[0]
+  const punct = [...rows].sort(P_SORTS.punct.fn)[0]
+  const avg   = rows.length ? Math.round(rows.reduce((s, r) => s + r.score, 0) / rows.length) : null
+  const perfect = rows.filter(r => r.s.absent === 0 && r.s.late === 0).length
+  const totalBonus = Object.values(bonusBy).reduce((s, v) => s + v, 0)
+  const top10 = [...rows].sort(P_SORTS.score.fn).slice(0, 10).map(r => ({ name: empName(r.emp), value: r.score, color: scoreColor(r.score) }))
 
   return (
     <>
-      {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard
-          label="Best Attendance"
-          value={best?.shortName ?? '—'}
-          sub={best ? `${best.score}% score` : 'No data yet'}
-          Icon={Award} iconBg="bg-emerald-50" iconColor="text-emerald-500"
-        />
-        <KpiCard
-          label="Most Punctual"
-          value={topPunct?.shortName ?? '—'}
-          sub={topPunct ? `${topPunct.punctuality}% on-time` : 'No data yet'}
-          Icon={Target} iconBg="bg-blue-50" iconColor="text-blue-500"
-        />
-        <KpiCard
-          label="Avg Attendance Score"
-          value={`${avgScore}%`}
-          sub={`across ${empScores.length} employee${empScores.length !== 1 ? 's' : ''}`}
-          Icon={Activity} iconBg="bg-purple-50" iconColor="text-purple-500"
-        />
-        <KpiCard
-          label={`Total Bonus (${yr})`}
-          value={fmt$(totalBonus)}
-          sub="all payroll records"
-          Icon={Zap} iconBg="bg-amber-50" iconColor="text-amber-500"
-        />
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <KpiTile label="Best attendance" value={best ? empName(best.emp).split(' ')[0] : '—'} Icon={Award} tone="bg-emerald-50 text-emerald-500" delta={<span className="text-[11px] text-gray-400">{best ? `${best.score}% score` : 'No data yet'}</span>} />
+        <KpiTile label="Most punctual" value={punct ? empName(punct.emp).split(' ')[0] : '—'} Icon={Target} tone="bg-sky-50 text-sky-500" delta={<span className="text-[11px] text-gray-400">{punct ? `${punct.punct}% on time` : 'No data yet'}</span>} />
+        <KpiTile label="Average score" value={avg == null ? '—' : `${avg}%`} Icon={Activity} tone="bg-indigo-50 text-indigo-500" delta={<span className="text-[11px] text-gray-400">{perfect} with no late / absent</span>} />
+        {canPay
+          ? <KpiTile label={`Bonuses ${year}`} value={money(totalBonus)} Icon={Gift} tone="bg-amber-50 text-amber-500" delta={<span className="text-[11px] text-gray-400">{Object.values(bonusBy).filter(v => v > 0).length} employees received one</span>} />
+          : <KpiTile label="Employees scored" value={rows.length} Icon={Users} tone="bg-amber-50 text-amber-500" delta={<span className="text-[11px] text-gray-400">with attendance in {year}</span>} />}
       </div>
-
-      {/* Charts row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-
-        {/* Employee Attendance Score — horizontal bar */}
-        <ChartCard
-          title="Attendance Score by Employee"
-          subtitle={`${yr} — present + late days / total marked`}
-          badgeBg="bg-indigo-50"
-          badge={<Activity size={20} className="text-indigo-500" />}
-        >
-          {!hasAtt ? <EmptyChart /> : (
-            <ResponsiveContainer width="100%" height={Math.max(240, empScores.length * 56)}>
-              <BarChart
-                layout="vertical"
-                data={empScores}
-                margin={{ top: 4, right: 24, left: 0, bottom: 4 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
-                <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11, fill: '#94a3b8' }}
-                  axisLine={false} tickLine={false} tickFormatter={v => `${v}%`} />
-                <YAxis type="category" dataKey="name" tick={{ fontSize: 12, fill: '#374151', fontWeight: 600 }}
-                  axisLine={false} tickLine={false} width={120}
-                  tickFormatter={v => v.length > 16 ? `${v.slice(0, 15)}…` : v} />
-                <Tooltip
-                  content={({ active, payload, label }) => {
-                    if (!active || !payload?.length) return null
-                    const d = payload[0].payload
-                    return (
-                      <div className="bg-white border border-gray-100 rounded-xl shadow-lg px-3.5 py-2.5 text-xs">
-                        <p className="font-bold text-gray-800 mb-1">{d.name}</p>
-                        <p className="text-gray-600">Score: <span className="font-bold text-gray-900">{d.score}%</span></p>
-                        <p className="text-gray-600">Punctuality: <span className="font-bold text-blue-600">{d.punctuality}%</span></p>
-                        <p className="text-gray-600">Late: <span className="font-bold text-amber-600">{d.late}</span></p>
-                        <p className="text-gray-600">Absent: <span className="font-bold text-red-600">{d.absent}</span></p>
-                      </div>
-                    )
-                  }}
-                />
-                <Bar dataKey="score" name="Score" radius={[0, 4, 4, 0]} maxBarSize={28}>
-                  {empScores.map((e, i) => (
-                    <Cell key={`cell-${i}`} fill={scoreColor(e.score)} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </ChartCard>
-
-        {/* Bonus Distribution — vertical bar */}
-        <ChartCard
-          title="Bonus Distribution"
-          subtitle={`${yr} — total bonus from payroll records`}
-          badgeBg="bg-amber-50"
-          badge={<Zap size={20} className="text-amber-500" />}
-        >
-          {!hasBonus ? <EmptyChart message="No bonus data in payroll records yet" /> : (
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={bonusData} margin={{ top: 6, right: 6, left: -5, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#374151', fontWeight: 600 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false}
-                  tickFormatter={v => v === 0 ? '$0' : `$${(v/1000).toFixed(0)}k`} />
-                <Tooltip
-                  content={({ active, payload, label }) => {
-                    if (!active || !payload?.length) return null
-                    return (
-                      <div className="bg-white border border-gray-100 rounded-xl shadow-lg px-3.5 py-2.5 text-xs">
-                        <p className="font-bold text-gray-800 mb-1">{label}</p>
-                        <p className="text-amber-600 font-bold">{fmt$(payload[0].value)}</p>
-                      </div>
-                    )
-                  }}
-                />
-                <Bar dataKey="bonus" name="Bonus" fill="#f59e0b" radius={[4,4,0,0]} maxBarSize={56} />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </ChartCard>
-      </div>
-
-      {/* Employee scorecard table */}
-      {empScores.length > 0 && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-100">
-            <h3 className="text-sm font-bold text-gray-800">Employee Performance Scorecard — {yr}</h3>
+      <div className="grid lg:grid-cols-12 gap-5">
+        <Panel className="lg:col-span-5" title="Top 10" sub="Attendance score = attended ÷ (attended + absent)" Icon={Award}>
+          <HBars rows={top10} max={100} valueLabel={v => `${v}%`} />
+          <div className="flex flex-wrap gap-3 mt-4 text-[11px] text-gray-500">
+            {[['90%+', '#10b981'], ['75–89%', '#2a78d6'], ['60–74%', '#f59e0b'], ['< 60%', '#f43f5e']].map(([l, c]) => <span key={l} className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm" style={{ background: c }} />{l}</span>)}
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-50 bg-gray-50/60">
-                  {['#','Employee','Attendance Score','Punctuality','Late Days','Absent Days','Bonus Earned'].map(h => (
-                    <th key={h} className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{h}</th>
+        </Panel>
+        <section className="lg:col-span-7 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="p-4 border-b border-gray-100 flex flex-col sm:flex-row gap-2.5">
+            <SearchBox value={q} onChange={setQ} placeholder="Search employee…" />
+            <div className="relative sm:w-48">
+              <ArrowUpDown size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              <select value={sort} onChange={e => setSort(e.target.value)} className="w-full pl-8 pr-3 py-2.5 text-sm rounded-xl border border-gray-200 bg-gray-50 text-gray-700 focus:outline-none">
+                {Object.entries(P_SORTS).filter(([k]) => k !== 'bonus' || canPay).map(([k, s]) => <option key={k} value={k}>{s.label}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="overflow-x-auto max-h-[420px] overflow-y-auto">
+            <table className="w-full text-sm min-w-[600px]">
+              <thead className="sticky top-0 bg-gray-50">
+                <tr className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+                  {['#', 'Employee', 'Score', 'On time', 'Late', 'Absent', ...(canPay ? ['Bonus'] : [])].map((h, i) => (
+                    <th key={h} className={`px-4 py-2.5 ${i > 1 ? 'text-right' : 'text-left'}`}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {empScores.map((e, i) => {
-                  const bonus = bonusById[e.id] ?? 0
-                  const barW  = `${e.score}%`
-                  return (
-                    <tr key={e.id} className="hover:bg-gray-50/40 transition-colors">
-                      <td className="px-5 py-4 text-gray-400 font-medium text-xs">{i + 1}</td>
-                      <td className="px-5 py-4">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
-                            <span className="text-xs font-bold text-indigo-600">
-                              {e.name.split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase()}
-                            </span>
-                          </div>
-                          <p className="font-semibold text-gray-800">{e.name}</p>
-                        </div>
-                      </td>
-                      <td className="px-5 py-4">
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 bg-gray-100 rounded-full h-1.5 w-20">
-                            <div className="h-1.5 rounded-full transition-all" style={{ width: barW, background: scoreColor(e.score) }} />
-                          </div>
-                          <span className="text-xs font-bold" style={{ color: scoreColor(e.score) }}>{e.score}%</span>
-                        </div>
-                      </td>
-                      <td className="px-5 py-4">
-                        <span className="text-xs font-semibold text-blue-600">{e.punctuality}%</span>
-                      </td>
-                      <td className="px-5 py-4">
-                        <span className={`text-xs font-semibold ${e.late > 0 ? 'text-amber-600' : 'text-gray-400'}`}>{e.late}</span>
-                      </td>
-                      <td className="px-5 py-4">
-                        <span className={`text-xs font-semibold ${e.absent > 0 ? 'text-red-500' : 'text-gray-400'}`}>{e.absent}</span>
-                      </td>
-                      <td className="px-5 py-4">
-                        <span className={`text-xs font-semibold ${bonus > 0 ? 'text-emerald-600' : 'text-gray-300'}`}>{fmt$(bonus)}</span>
-                      </td>
-                    </tr>
-                  )
-                })}
+                {shown.map((r, i) => (
+                  <tr key={r.emp.id} className="hover:bg-gray-50/60">
+                    <td className="px-4 py-2.5 text-xs font-bold text-gray-300">{i + 1}</td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-2.5 min-w-[170px]">
+                        <Avatar id={r.emp.id} name={empName(r.emp)} src={r.emp.avatar_url || null} size="w-8 h-8 text-[11px]" />
+                        <div className="min-w-0"><p className="font-semibold text-gray-800 truncate">{empName(r.emp)}</p><p className="text-[11px] text-gray-400 truncate">{r.s.total} days recorded</p></div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center justify-end gap-2">
+                        <div className="w-16 h-1.5 rounded-full bg-gray-100 overflow-hidden"><div className="h-full rounded-full" style={{ width: `${r.score}%`, background: scoreColor(r.score) }} /></div>
+                        <span className="text-xs font-bold text-gray-800 w-9 text-right tabular-nums">{r.score}%</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5 text-right text-gray-600 tabular-nums">{r.punct}%</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums">{r.s.late ? <span className="font-semibold text-amber-600">{r.s.late}</span> : <span className="text-gray-300">0</span>}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums">{r.s.absent ? <span className="font-semibold text-rose-600">{r.s.absent}</span> : <span className="text-gray-300">0</span>}</td>
+                    {canPay && <td className="px-4 py-2.5 text-right tabular-nums">{r.bonus ? <span className="font-semibold text-emerald-600">{money(r.bonus)}</span> : <span className="text-gray-300">—</span>}</td>}
+                  </tr>
+                ))}
+                {!shown.length && <tr><td colSpan={7} className="text-center text-sm text-gray-400 py-10">No attendance data for {year}</td></tr>}
               </tbody>
             </table>
           </div>
-        </div>
-      )}
+        </section>
+      </div>
     </>
   )
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
-// MAIN PAGE
-// ════════════════════════════════════════════════════════════════════════════════
 export default function Analytics() {
-  const [activeTab, setActiveTab] = useState('employee')
-  const [loading,   setLoading]   = useState(true)
-
-  // ── Shared data ──
+  const { canAccessPayroll } = useAuth()
+  const thisYear = new Date().getFullYear()
+  const [tab,  setTab]  = useState(() => { try { return localStorage.getItem('analytics_tab') || 'workforce' } catch { return 'workforce' } })
+  const [year, setYear] = useState(thisYear)
   const [employees, setEmployees] = useState([])
-  const [attYear,   setAttYear]   = useState([])
-  const [attMonth,  setAttMonth]  = useState([])
-  const [bonusRows, setBonusRows] = useState([])
+  const [att,       setAtt]       = useState([])
+  const [payroll,   setPayroll]   = useState([])
+  const [loading,   setLoading]   = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const reqId = useRef(0)
 
-  useEffect(() => {
-    async function loadAll() {
-      setLoading(true)
-      const now = new Date()
-      const yr  = now.getFullYear()
-      const mo  = now.getMonth()
-      const pad = n => String(n).padStart(2, '0')
-      const monthStart = `${yr}-${pad(mo + 1)}-01`
-      const monthEnd   = `${yr}-${pad(mo + 1)}-${pad(new Date(yr, mo + 1, 0).getDate())}`
-
-      const [r1, r2, r3, r4] = await Promise.all([
-        getEmployees(),
-        getAttendanceRange(`${yr}-01-01`, `${yr}-12-31`),
-        getAttendanceRange(monthStart, monthEnd),
-        getPayrollRecordsByYear(yr),
+  async function load(soft = false) {
+    const id = ++reqId.current
+    soft ? setRefreshing(true) : setLoading(true)
+    try {
+      const [emps, a, p] = await Promise.all([
+        db.getEmployees(),
+        db.getAttendanceRange(`${year}-01-01`, `${year}-12-31`),
+        canAccessPayroll ? db.getPayrollRecordsByYear(year) : Promise.resolve([]),
       ])
+      if (id !== reqId.current) return
+      setEmployees(emps); setAtt(a); setPayroll(p)
+    } catch {}
+    if (id === reqId.current) { setLoading(false); setRefreshing(false) }
+  }
+  useEffect(() => { load() }, [year, canAccessPayroll]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { try { localStorage.setItem('analytics_tab', tab) } catch {} }, [tab])
 
-      r1.sort((a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? ''))
-      setEmployees(r1)
-      setAttYear(r2)
-      setAttMonth(r3)
-      setBonusRows(r4)
-      setLoading(false)
-    }
-    loadAll()
-  }, [])
+  const years = [thisYear, thisYear - 1, thisYear - 2]
 
-  // ── Export ──
-  function exportPDF() { window.print() }
-
-  function exportExcel() {
-    const yr = new Date().getFullYear()
-    if (activeTab === 'employee') {
-      downloadCSV(
-        employees.map(e => ({
-          Name:       `${e.first_name} ${e.last_name}`,
-          Status:     e.status,
-          Department: e.departments?.name ?? '',
-          Joined:     e.created_at?.slice(0, 10) ?? '',
-        })),
-        `employee-analytics-${yr}.csv`,
-      )
-    } else if (activeTab === 'attendance') {
-      downloadCSV(
-        MONTH_ABBR.map((month, i) => {
-          const rows = attYear.filter(r => parseInt(r.date.slice(5, 7), 10) - 1 === i)
-          return {
-            Month:  month,
-            Total:  rows.length,
-            Present: rows.filter(r => r.status === 'present').length,
-            Late:    rows.filter(r => r.status === 'late').length,
-            Absent:  rows.filter(r => r.status === 'absent').length,
-          }
-        }),
-        `attendance-analytics-${yr}.csv`,
-      )
+  function exportCSV() {
+    const active = employees.filter(e => e.status === 'active')
+    if (tab === 'workforce') {
+      downloadCSV(employees.map(e => ({ Name: empName(e), Status: e.status, Department: e.departments?.name ?? '', 'Job Title': e.job_title ?? '', 'Hire Date': e.hire_date ?? '' })), `workforce-${year}.csv`)
+    } else if (tab === 'attendance') {
+      const ids = new Set(active.map(e => e.id))
+      downloadCSV(MONTHS.map((m, i) => {
+        const s = summarize(att.filter(r => ids.has(r.employee_id) && Number(r.date.slice(5, 7)) === i + 1))
+        return { Month: `${m} ${year}`, Records: s.total, Present: s.present, Late: s.late, 'Half Day': s.half_day, Absent: s.absent, Holiday: s.holiday, 'Attendance %': s.rate ?? '', 'On-time %': s.onTime ?? '' }
+      }), `attendance-analytics-${year}.csv`)
     } else {
-      const empMap = {}
-      employees.forEach(e => { empMap[e.id] = `${e.first_name} ${e.last_name}` })
-      const map = {}
-      attYear.forEach(r => {
-        const name = empMap[r.employee_id]
-        if (!name) return
-        if (!map[name]) map[name] = { total: 0, present: 0, late: 0, absent: 0 }
-        map[name].total++
-        if      (r.status === 'present') map[name].present++
-        else if (r.status === 'late')    map[name].late++
-        else if (r.status === 'absent')  map[name].absent++
-      })
-      downloadCSV(
-        Object.entries(map).map(([name, d]) => ({
-          Employee:        name,
-          Score:           d.total > 0 ? Math.round(((d.present + d.late) / d.total) * 100) : 0,
-          Punctuality:     d.total > 0 ? Math.round((d.present / d.total) * 100) : 0,
-          'Late Days':     d.late,
-          'Absent Days':   d.absent,
-          'Total Marked':  d.total,
-        })),
-        `performance-analytics-${yr}.csv`,
-      )
+      downloadCSV(active.map(e => {
+        const s = summarize(att.filter(r => r.employee_id === e.id))
+        return { Employee: empName(e), Department: e.departments?.name ?? '', Days: s.total, 'Score %': s.rate ?? '', 'On-time %': s.onTime ?? '', Late: s.late, Absent: s.absent }
+      }).filter(r => r.Days > 0), `performance-${year}.csv`)
     }
   }
 
   return (
-    <div className="space-y-5">
-
-      {/* ── Action bar ── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-
-        {/* Pill tabs */}
-        <div className="inline-flex items-center bg-gray-100 rounded-full p-1 gap-0.5">
-          {TABS.map(({ id, label, Icon }) => (
-            <button
-              key={id}
-              onClick={() => setActiveTab(id)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold transition-all duration-200
-                ${activeTab === id
-                  ? 'bg-[#1e3a8a] text-white shadow-md'
-                  : 'text-gray-500 hover:text-gray-700'
-                }`}
-            >
-              <Icon size={14} />
-              {label}
-            </button>
-          ))}
+    <div className="space-y-5 pb-10">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-extrabold text-gray-900 tracking-tight">Analytics · {year}</h2>
+          <p className="text-sm text-gray-400 mt-1">Workforce, attendance and performance insights</p>
         </div>
-
-        {/* Export buttons */}
-        <div className="flex items-center gap-2 shrink-0">
-          <button onClick={exportPDF}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold
-              bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors">
-            <FileText size={14} className="text-red-500" /> PDF
-          </button>
-          <button onClick={exportExcel}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold
-              bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors">
-            <Table size={14} className="text-emerald-600" /> Excel
-          </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1 p-1 bg-white border border-gray-200 rounded-xl shadow-sm">
+            {TABS.map(t => (
+              <button key={t.id} onClick={() => setTab(t.id)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold whitespace-nowrap transition-colors ${tab === t.id ? 'bg-[#1e3a8a] text-white shadow-sm' : 'text-gray-500 hover:bg-gray-50'}`}>
+                <t.Icon size={14} /> {t.label}
+              </button>
+            ))}
+          </div>
+          <select value={year} onChange={e => setYear(Number(e.target.value))}
+            className="px-3 py-2.5 text-sm font-semibold rounded-xl border border-gray-200 bg-white shadow-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#1e3a8a]/20">
+            {years.map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+          <button onClick={exportCSV} title="Export CSV" className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-sm font-semibold bg-white border border-gray-200 shadow-sm text-gray-600 hover:bg-gray-50"><Download size={15} /> <span className="hidden sm:inline">Export</span></button>
+          <button onClick={() => window.print()} title="Print / PDF" className="w-10 h-10 rounded-xl flex items-center justify-center bg-white border border-gray-200 shadow-sm text-gray-500 hover:bg-gray-50"><Printer size={15} /></button>
+          <button onClick={() => load(true)} title="Refresh" className="w-10 h-10 rounded-xl flex items-center justify-center bg-white border border-gray-200 shadow-sm text-gray-500 hover:bg-gray-50"><RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} /></button>
         </div>
       </div>
 
-      {/* Loading */}
-      {loading && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex items-center justify-center gap-3 py-24 text-gray-400">
-          <Loader2 size={22} className="animate-spin text-blue-500" />
-          <span className="text-sm">Loading analytics…</span>
+      {loading ? (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">{[0, 1, 2, 3].map(i => <div key={i} className="h-32 bg-white rounded-2xl border border-gray-100 shimmer" />)}</div>
+          <div className="grid lg:grid-cols-2 gap-5">{[0, 1].map(i => <div key={i} className="h-72 bg-white rounded-2xl border border-gray-100 shimmer" />)}</div>
         </div>
-      )}
-
-      {/* Tabs */}
-      {!loading && activeTab === 'employee' && (
-        <EmployeeTab employees={employees} />
-      )}
-      {!loading && activeTab === 'attendance' && (
-        <AttendanceTab attYear={attYear} attMonth={attMonth} />
-      )}
-      {!loading && activeTab === 'performance' && (
-        <PerformanceTab employees={employees} attYear={attYear} bonusRows={bonusRows} />
+      ) : tab === 'workforce' ? (
+        <WorkforceTab employees={employees} year={year} />
+      ) : tab === 'attendance' ? (
+        <AttendanceTab employees={employees} att={att} year={year} />
+      ) : (
+        <PerformanceTab employees={employees} att={att.filter(r => employees.some(e => e.id === r.employee_id))} payroll={payroll} canPay={canAccessPayroll} year={year} />
       )}
     </div>
   )

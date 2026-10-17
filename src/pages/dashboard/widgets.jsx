@@ -8,7 +8,9 @@ import {
   ArrowUpRight, ArrowDownRight, Minus, AlertOctagon, AlertTriangle, Info, CheckCircle2, ChevronRight,
   LogIn, LogOut, UserX, Sun, Hourglass, Cake, Sparkles, Award, Flag, PartyPopper, Clock,
 } from 'lucide-react'
-import { Avatar } from '../../components/ui'
+import { Avatar, Tabs } from '../../components/ui'
+
+export { Tabs }
 import { fmtMins, fmtTime, parseDate } from './model'
 
 // ── Palette (validated: attendance statuses in this stack order; blue ordinal ramp) ──
@@ -56,20 +58,6 @@ export function ViewLink({ to, children = 'View all' }) {
     <Link to={to} className="flex items-center gap-0.5 text-xs font-semibold text-[#1e3a8a] hover:underline whitespace-nowrap shrink-0 mt-1.5">
       {children} <ChevronRight size={13} />
     </Link>
-  )
-}
-
-export function Tabs({ value, onChange, items }) {
-  return (
-    <div className="flex items-center gap-1 p-0.5 bg-gray-50 rounded-lg border border-gray-100 shrink-0">
-      {items.map(i => (
-        <button key={i.key} onClick={() => onChange(i.key)}
-          className={`px-2.5 py-1 rounded-md text-[11px] font-semibold whitespace-nowrap transition-all
-            ${value === i.key ? 'bg-white text-[#1e3a8a] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
-          {i.label}{i.count != null && <span className="ml-1 text-gray-400">{i.count}</span>}
-        </button>
-      ))}
-    </div>
   )
 }
 

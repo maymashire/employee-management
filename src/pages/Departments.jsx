@@ -1,569 +1,526 @@
-import { useState, useEffect, useCallback } from 'react'
+/**
+ * Departments — org structure: department cards with head, team, today's
+ * attendance and (for payroll roles) salary cost; manage members (move / add),
+ * unassigned employees, colours and department heads.
+ */
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import * as db from '../lib/db'
 import {
-  Building2, Plus, Pencil, Trash2, X,
-  Loader2, CheckCircle2, AlertCircle, Users,
-  ChevronRight, Mail, Phone, Calendar, Briefcase,
+  Building2, Plus, Pencil, Trash2, Users, UserCheck, Crown, Search, Download, RefreshCw,
+  ArrowUpDown, CalendarCheck, Wallet, UserPlus, Inbox, Check, ChevronRight, Layers, X,
 } from 'lucide-react'
+import { useAuth } from '../context/AuthContext'
+import {
+  useToast, useArmed, downloadCSV, Toast, HeroCard, RateRing, StatCard, SearchBox, ToolButton, EmptyState,
+  Avatar, Modal, ModalHeader, ErrorNote, PrimaryButton, INPUT_CLS, Checkbox,
+} from '../components/ui'
+import { DEPT_THEMES, deptTheme, empName, findDuplicates, EMP_STATUS } from '../lib/people'
+import { ATTENDED, toDateStr } from '../lib/attendance'
 
-// ── department color palette ──────────────────────────────────────────────────
+const USD0 = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
+const money = n => USD0.format(Number(n) || 0)
+const TODAY = toDateStr(new Date())
 
-const DEPT_PALETTES = [
-  { gradient: 'linear-gradient(135deg,#4f46e5,#6366f1)', icon: 'bg-indigo-50', iconText: 'text-indigo-600', pill: 'bg-indigo-100 text-indigo-700' },
-  { gradient: 'linear-gradient(135deg,#0891b2,#06b6d4)', icon: 'bg-cyan-50',   iconText: 'text-cyan-600',   pill: 'bg-cyan-100 text-cyan-700' },
-  { gradient: 'linear-gradient(135deg,#059669,#10b981)', icon: 'bg-emerald-50', iconText: 'text-emerald-600', pill: 'bg-emerald-100 text-emerald-700' },
-  { gradient: 'linear-gradient(135deg,#d97706,#f59e0b)', icon: 'bg-amber-50',  iconText: 'text-amber-600',  pill: 'bg-amber-100 text-amber-700' },
-  { gradient: 'linear-gradient(135deg,#dc2626,#f43f5e)', icon: 'bg-rose-50',   iconText: 'text-rose-600',   pill: 'bg-rose-100 text-rose-700' },
-  { gradient: 'linear-gradient(135deg,#7c3aed,#a855f7)', icon: 'bg-purple-50', iconText: 'text-purple-600', pill: 'bg-purple-100 text-purple-700' },
-]
-
-function palette(idx) { return DEPT_PALETTES[idx % DEPT_PALETTES.length] }
-
-// ── helpers ───────────────────────────────────────────────────────────────────
-
-const AVATAR_GRADS = [
-  'linear-gradient(135deg,#6366f1,#8b5cf6)',
-  'linear-gradient(135deg,#3b82f6,#06b6d4)',
-  'linear-gradient(135deg,#10b981,#3b82f6)',
-  'linear-gradient(135deg,#f59e0b,#ef4444)',
-  'linear-gradient(135deg,#f43f5e,#a855f7)',
-]
-function avatarGrad(id = '') {
-  let n = 0; for (const c of id) n += c.charCodeAt(0)
-  return AVATAR_GRADS[n % AVATAR_GRADS.length]
+const SORTS = {
+  name:  { label: 'Name A–Z',     fn: (a, b) => a.dept.name.localeCompare(b.dept.name) },
+  size:  { label: 'Largest team', fn: (a, b) => b.members.length - a.members.length },
+  rate:  { label: 'Attendance',   fn: (a, b) => (b.rate ?? -1) - (a.rate ?? -1) },
 }
 
-const STATUS_META = {
-  active:     { label: 'Active',     cls: 'bg-emerald-100 text-emerald-700' },
-  inactive:   { label: 'Inactive',   cls: 'bg-gray-100    text-gray-600' },
-  suspended:  { label: 'Suspended',  cls: 'bg-amber-100   text-amber-700' },
-  terminated: { label: 'Terminated', cls: 'bg-red-100     text-red-700' },
-}
-
-const fmtDate = iso =>
-  iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
-
-const INPUT_CLS =
-  'w-full rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-sm text-gray-800 ' +
-  'placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 ' +
-  'focus:border-indigo-500 focus:bg-white transition-all'
-const LABEL_CLS = 'block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5'
-
-// ── Toast ─────────────────────────────────────────────────────────────────────
-
-function Toast({ toast, onDismiss }) {
-  useEffect(() => {
-    if (!toast) return
-    const id = setTimeout(onDismiss, 4500)
-    return () => clearTimeout(id)
-  }, [toast, onDismiss])
-  if (!toast) return null
-  const ok = toast.type === 'success'
+function AvatarStack({ people, max = 5 }) {
+  const shown = people.slice(0, max)
   return (
-    <div className={`fixed bottom-4 left-4 right-4 sm:left-auto sm:right-6 sm:bottom-6 sm:max-w-sm z-50
-      flex items-center gap-3 px-4 py-3 rounded-xl shadow-xl border text-sm font-medium
-      ${ok ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
-      {ok ? <CheckCircle2 size={17} className="text-emerald-500 shrink-0" />
-           : <AlertCircle  size={17} className="text-red-500 shrink-0" />}
-      <span className="flex-1">{toast.message}</span>
-      <button onClick={onDismiss} className="opacity-50 hover:opacity-100 ml-1"><X size={15} /></button>
+    <div className="flex items-center">
+      {shown.map((e, i) => (
+        <span key={e.id} className="ring-2 ring-white rounded-full" style={{ marginLeft: i ? -8 : 0, zIndex: max - i }}>
+          <Avatar id={e.id} name={empName(e)} src={e.avatar_url || null} size="w-7 h-7 text-[10px]" rounded="rounded-full" />
+        </span>
+      ))}
+      {people.length > max && (
+        <span className="ring-2 ring-white rounded-full w-7 h-7 bg-gray-100 text-[10px] font-bold text-gray-500 flex items-center justify-center" style={{ marginLeft: -8 }}>
+          +{people.length - max}
+        </span>
+      )}
+      {!people.length && <span className="text-xs text-gray-300">No members yet</span>}
     </div>
   )
 }
 
-// ── Department View Drawer ────────────────────────────────────────────────────
+// ── Form ──────────────────────────────────────────────────────────────────────
+function DeptForm({ dept, index, departments, employees, onClose, onSubmit }) {
+  const isEdit = !!dept
+  const [form, setForm] = useState({
+    name: dept?.name ?? '', description: dept?.description ?? '',
+    color: Number.isInteger(dept?.color) ? dept.color : index % DEPT_THEMES.length,
+    head_id: dept?.head_id ?? '',
+  })
+  const [busy, setBusy]   = useState(false)
+  const [error, setError] = useState('')
+  const set = p => { setForm(f => ({ ...f, ...p })); setError('') }
 
-function DeptDrawer({ dept, employees, paletteIdx, onClose, onEdit }) {
-  if (!dept) return null
-  const pal     = palette(paletteIdx)
-  const members = employees.filter(e => e.department_id === dept.id)
-  const active  = members.filter(e => e.status === 'active').length
-  const inactive = members.length - active
-
-  useEffect(() => {
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.body.style.overflow = prev }
-  }, [])
-
-  useEffect(() => {
-    const handle = e => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', handle)
-    return () => document.removeEventListener('keydown', handle)
-  }, [onClose])
-
-  return (
-    <>
-      {/* Full-viewport overlay — click outside to close */}
-      <div
-        className="fixed inset-0 z-50 flex items-center justify-center p-4"
-        style={{ background: 'rgba(15,23,42,0.5)', backdropFilter: 'blur(3px)' }}
-        onClick={onClose}
-      >
-        {/* Modal */}
-        <div
-          className="bg-white rounded-2xl flex flex-col shadow-2xl mx-auto"
-          style={{
-            width: '100%',
-            maxWidth: '520px',
-            maxHeight: '88vh',
-            animation: 'deptModalIn .2s cubic-bezier(.4,0,.2,1) forwards',
-          }}
-          onClick={e => e.stopPropagation()}
-        >
-          {/* ── Header ── */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
-            <p className="text-xs font-extrabold text-gray-400 uppercase tracking-widest">Department Details</p>
-            <button onClick={onClose}
-              className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400 hover:text-gray-700 transition-colors">
-              <X size={15} />
-            </button>
-          </div>
-
-          {/* ── Scrollable body ── */}
-          <div className="flex-1 min-h-0 overflow-y-auto">
-
-            {/* Department profile — centered */}
-            <div className="px-6 pt-6 pb-5 border-b border-gray-100 text-center">
-              <div className="w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg mx-auto mb-4"
-                style={{ background: pal.gradient }}>
-                <Building2 size={28} className="text-white" />
-              </div>
-              <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">{dept.name}</h2>
-              <p className="text-sm text-gray-400 mt-1.5 leading-relaxed max-w-sm mx-auto">
-                {dept.description || 'No description provided.'}
-              </p>
-
-              {/* Stats */}
-              <div className="grid grid-cols-3 gap-3 mt-5">
-                {[
-                  { label: 'Total',    value: members.length, bg: 'bg-slate-50',   border: 'border-slate-100',   num: 'text-gray-900',    sub: 'text-slate-400' },
-                  { label: 'Active',   value: active,         bg: 'bg-emerald-50', border: 'border-emerald-100', num: 'text-emerald-700', sub: 'text-emerald-400' },
-                  { label: 'Inactive', value: inactive,       bg: 'bg-amber-50',   border: 'border-amber-100',   num: 'text-amber-700',   sub: 'text-amber-400' },
-                ].map(({ label, value, bg, border, num, sub }) => (
-                  <div key={label} className={`${bg} border ${border} rounded-xl py-3`}>
-                    <p className={`text-2xl font-extrabold ${num} leading-none`}>{value}</p>
-                    <p className={`text-[11px] font-semibold ${sub} mt-1`}>{label}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Team members */}
-            <div className="px-6 py-5">
-              <p className="text-xs font-extrabold text-gray-400 uppercase tracking-widest mb-4">
-                Team Members
-                <span className="ml-2 inline-flex items-center justify-center w-5 h-5 rounded-full bg-gray-100 text-gray-500 text-[10px] font-bold">{members.length}</span>
-              </p>
-
-              {members.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-10 gap-3">
-                  <div className="w-12 h-12 rounded-full bg-gray-50 flex items-center justify-center">
-                    <Users size={22} className="text-gray-300" />
-                  </div>
-                  <p className="text-sm text-gray-400">No team members yet.</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {members.map(emp => {
-                    const ini        = `${emp.first_name?.[0] ?? ''}${emp.last_name?.[0] ?? ''}`.toUpperCase()
-                    const statusMeta = STATUS_META[emp.status] ?? STATUS_META.inactive
-                    return (
-                      <div key={emp.id}
-                        className="bg-gray-50/60 border border-gray-100 rounded-xl p-4 hover:bg-indigo-50/30 hover:border-indigo-100 transition-all">
-                        <div className="flex items-start gap-3">
-                          <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-extrabold shrink-0"
-                            style={{ background: avatarGrad(emp.id) }}>
-                            {ini}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <p className="font-bold text-gray-900 text-sm">{emp.first_name} {emp.last_name}</p>
-                              <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${statusMeta.cls}`}>
-                                {statusMeta.label}
-                              </span>
-                            </div>
-                            <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
-                              <Briefcase size={10} className="shrink-0 text-gray-400" />
-                              {emp.job_title || 'No title'}
-                            </p>
-                            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
-                              {emp.email && (
-                                <p className="text-xs text-gray-400 flex items-center gap-1.5">
-                                  <Mail size={10} className="text-gray-300 shrink-0" />{emp.email}
-                                </p>
-                              )}
-                              {emp.phone_number && (
-                                <p className="text-xs text-gray-400 flex items-center gap-1.5">
-                                  <Phone size={10} className="text-gray-300 shrink-0" />{emp.phone_number}
-                                </p>
-                              )}
-                              {emp.hire_date && (
-                                <p className="text-xs text-gray-400 flex items-center gap-1.5">
-                                  <Calendar size={10} className="text-gray-300 shrink-0" />Joined {fmtDate(emp.hire_date)}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* ── Footer ── */}
-          <div className="px-6 py-4 border-t border-gray-100 shrink-0 flex gap-3">
-            <button onClick={onClose}
-              className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors">
-              Close
-            </button>
-            <button onClick={onEdit}
-              className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-white text-sm font-bold"
-              style={{ background: 'linear-gradient(135deg,#4f46e5,#3b82f6)', boxShadow: '0 4px 14px rgba(79,70,229,0.3)' }}>
-              <Pencil size={13} /> Edit Department
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <style>{`
-        @keyframes deptModalIn {
-          from { opacity: 0; transform: scale(0.96) translateY(10px); }
-          to   { opacity: 1; transform: scale(1)    translateY(0); }
-        }
-      `}</style>
-    </>
-  )
-}
-
-// ── Delete Modal ──────────────────────────────────────────────────────────────
-
-function DeleteModal({ dept, loading, onConfirm, onCancel }) {
-  if (!dept) return null
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 text-center fade-in">
-        <div className="w-14 h-14 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4">
-          <Trash2 size={24} className="text-red-500" />
-        </div>
-        <h3 className="text-lg font-bold text-gray-800">Delete Department</h3>
-        <p className="text-sm text-gray-500 mt-2 leading-relaxed">
-          Delete <span className="font-semibold text-gray-700">"{dept.name}"</span>?<br />
-          Employees in this department will become unassigned.
-        </p>
-        <div className="flex gap-3 mt-6">
-          <button onClick={onCancel}
-            className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors">
-            Cancel
-          </button>
-          <button onClick={onConfirm} disabled={loading}
-            className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold transition-colors disabled:opacity-60">
-            {loading ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
-            Delete
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ── Dept Form Modal ───────────────────────────────────────────────────────────
-
-function DeptModal({ mode, formData, onChange, onClose, onSubmit, loading }) {
-  const isEdit = mode === 'edit'
-  const field  = name => e => onChange({ ...formData, [name]: e.target.value })
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg fade-in">
-        <div className="flex items-start justify-between px-6 py-5 border-b border-gray-100">
-          <div>
-            <h2 className="text-lg font-bold text-gray-900">
-              {isEdit ? 'Edit Department' : 'New Department'}
-            </h2>
-            <p className="text-xs text-gray-400 mt-0.5">
-              {isEdit ? 'Update the department details.' : 'Add a new department to your organisation.'}
-            </p>
-          </div>
-          <button onClick={onClose} className="p-2 rounded-xl text-gray-400 hover:bg-gray-100 transition-colors">
-            <X size={18} />
-          </button>
-        </div>
-        <form onSubmit={onSubmit}>
-          <div className="px-6 py-5 space-y-4">
-            <div>
-              <label className={LABEL_CLS}>Department Name <span className="text-red-400 normal-case tracking-normal">*</span></label>
-              <input required type="text" value={formData.name} onChange={field('name')}
-                placeholder="e.g. Engineering" className={INPUT_CLS} />
-            </div>
-            <div>
-              <label className={LABEL_CLS}>Description</label>
-              <textarea rows={3} value={formData.description} onChange={field('description')}
-                placeholder="Brief description of what this department does…"
-                className={`${INPUT_CLS} resize-none`} />
-            </div>
-          </div>
-          <div className="flex gap-3 px-6 py-4 border-t border-gray-100 bg-gray-50/50 rounded-b-2xl">
-            <button type="button" onClick={onClose}
-              className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 bg-white text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors">
-              Cancel
-            </button>
-            <button type="submit" disabled={loading}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-white text-sm font-bold transition-all disabled:opacity-60 shadow-md"
-              style={{ background: 'linear-gradient(135deg,#4f46e5,#3b82f6)', boxShadow: '0 4px 14px rgba(79,70,229,0.35)' }}>
-              {loading && <Loader2 size={15} className="animate-spin" />}
-              {isEdit ? 'Save Changes' : 'Create Department'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  )
-}
-
-// ── Main Page ─────────────────────────────────────────────────────────────────
-
-export default function DepartmentsPage() {
-  const [departments,  setDepartments]  = useState([])
-  const [allEmployees, setAllEmployees] = useState([])
-  const [loading,      setLoading]      = useState(true)
-  const [submitting,   setSubmitting]   = useState(false)
-  const [deleting,     setDeleting]     = useState(false)
-  const [toast,        setToast]        = useState(null)
-  const [modal,        setModal]        = useState({ open: false })
-  const [form,         setForm]         = useState({ name: '', description: '' })
-  const [deleteTarget, setDeleteTarget] = useState(null)
-  const [viewDept,     setViewDept]     = useState(null)
-  const [viewIdx,      setViewIdx]      = useState(0)
-
-  const fetchAll = useCallback(async () => {
-    try {
-      const [depts, emps] = await Promise.all([db.getDepartments(), db.getEmployees()])
-      setDepartments(depts)
-      setAllEmployees(emps)
-    } catch (err) {
-      console.error(err.message)
-    }
-  }, [])
-
-  useEffect(() => {
-    setLoading(true)
-    fetchAll().finally(() => setLoading(false))
-  }, [fetchAll])
-
-  const showToast    = useCallback((type, message) => setToast({ type, message }), [])
-  const dismissToast = useCallback(() => setToast(null), [])
-
-  function openAdd() {
-    setForm({ name: '', description: '' })
-    setModal({ open: true, mode: 'add' })
-  }
-
-  function openEdit(dept) {
-    setViewDept(null)
-    setForm({ name: dept.name ?? '', description: dept.description ?? '' })
-    setModal({ open: true, mode: 'edit', id: dept.id })
-  }
-
-  function closeModal() {
-    setModal({ open: false })
-    setForm({ name: '', description: '' })
-  }
-
-  async function handleSave(e) {
+  async function submit(e) {
     e.preventDefault()
-    setSubmitting(true)
-    const payload = { name: form.name.trim(), description: form.description.trim() || null }
+    const name = form.name.trim()
+    if (!name) return setError('Department name is required.')
+    if (departments.some(d => d.id !== dept?.id && d.name.toLowerCase() === name.toLowerCase())) return setError('A department with this name already exists.')
+    setBusy(true)
     try {
-      if (modal.mode === 'add') await db.addDepartment(payload)
-      else await db.updateDepartment(modal.id, payload)
-    } catch (err) {
-      showToast('error', err.message)
-      setSubmitting(false)
-      return
-    }
-    setSubmitting(false)
-    closeModal()
-    showToast('success', modal.mode === 'add' ? `"${payload.name}" created.` : `"${payload.name}" updated.`)
-    await fetchAll()
+      await onSubmit({ name, description: form.description.trim() || null, color: form.color, head_id: form.head_id || null })
+      onClose()
+    } catch (err) { setError(err.message); setBusy(false) }
   }
 
-  async function handleDelete() {
-    if (!deleteTarget) return
-    setDeleting(true)
-    try {
-      await db.deleteDepartment(deleteTarget.id)
-      showToast('success', `"${deleteTarget.name}" deleted.`)
-      setDepartments(prev => prev.filter(d => d.id !== deleteTarget.id))
-      if (viewDept?.id === deleteTarget.id) setViewDept(null)
-    } catch (err) {
-      showToast('error', err.message)
-    }
-    setDeleting(false)
-    setDeleteTarget(null)
-  }
+  const theme = DEPT_THEMES[form.color]
+  return (
+    <Modal as="form" onSubmit={submit} onClose={onClose} maxWidth="520px">
+      <ModalHeader title={isEdit ? `Edit ${dept.name}` : 'New department'} sub={isEdit ? 'Update details, colour and head' : 'Add a unit to your organisation'} onClose={onClose} />
+      <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-4">
+        <div className="flex items-center gap-3 rounded-xl p-3 text-white" style={{ background: theme.gradient }}>
+          <span className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center"><Building2 size={18} /></span>
+          <div className="min-w-0">
+            <p className="font-bold truncate">{form.name || 'Department name'}</p>
+            <p className="text-xs text-white/80 truncate">{form.description || 'Description'}</p>
+          </div>
+        </div>
+        <label className="block">
+          <span className="text-xs font-medium text-gray-500">Name <span className="text-rose-400">*</span></span>
+          <input value={form.name} onChange={e => set({ name: e.target.value })} placeholder="e.g. Engineering" className={`${INPUT_CLS} mt-1`} maxLength={40} />
+        </label>
+        <label className="block">
+          <span className="text-xs font-medium text-gray-500">Description</span>
+          <textarea rows={2} value={form.description} onChange={e => set({ description: e.target.value })} placeholder="What does this team do?" className={`${INPUT_CLS} mt-1 resize-none`} maxLength={200} />
+        </label>
+        <div>
+          <p className="text-xs font-medium text-gray-500 mb-1.5">Colour</p>
+          <div className="flex gap-2">
+            {DEPT_THEMES.map((t, i) => (
+              <button key={t.name} type="button" title={t.name} onClick={() => set({ color: i })}
+                className={`w-9 h-9 rounded-xl flex items-center justify-center text-white transition-transform ${form.color === i ? 'ring-2 ring-offset-2 ring-gray-900 scale-105' : 'hover:scale-105'}`}
+                style={{ background: t.gradient }}>
+                {form.color === i && <Check size={15} />}
+              </button>
+            ))}
+          </div>
+        </div>
+        <label className="block">
+          <span className="text-xs font-medium text-gray-500 flex items-center gap-1.5"><Crown size={12} /> Head of department</span>
+          <select value={form.head_id} onChange={e => set({ head_id: e.target.value })} className={`${INPUT_CLS} mt-1`}>
+            <option value="">— None —</option>
+            {employees.filter(e => e.status === 'active').map(e => (
+              <option key={e.id} value={e.id}>{empName(e)}{e.departments?.name ? ` · ${e.departments.name}` : ''}</option>
+            ))}
+          </select>
+        </label>
+        <ErrorNote>{error}</ErrorNote>
+      </div>
+      <div className="flex justify-end gap-2 px-6 py-4 border-t border-gray-100 shrink-0">
+        <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-100">Cancel</button>
+        <PrimaryButton type="submit" disabled={busy} busy={busy}>{isEdit ? 'Save changes' : 'Create department'}</PrimaryButton>
+      </div>
+    </Modal>
+  )
+}
 
-  // Compute emp count per department (unique employees only — deduplicate by name)
-  const empCounts = {}
-  const seenNames = {}
-  for (const emp of allEmployees) {
-    const key = `${(emp.first_name ?? '').toLowerCase()}|${(emp.last_name ?? '').toLowerCase()}`
-    if (seenNames[key]) continue
-    seenNames[key] = true
-    if (emp.department_id) empCounts[emp.department_id] = (empCounts[emp.department_id] ?? 0) + 1
-  }
+// ── Team modal (a department, or the unassigned pool) ─────────────────────────
+function TeamModal({ card, departments, employees, canPay, onClose, onEdit, onDelete, onMove, onSetHead }) {
+  const { dept, members } = card
+  const [q, setQ]           = useState('')
+  const [adding, setAdding] = useState(false)
+  const [picked, setPicked] = useState(() => new Set())
+  const [busy, setBusy]     = useState(false)
+  const [confirm, setConfirm] = useState(false)
+  const theme = dept ? card.theme : { gradient: 'linear-gradient(135deg,#475569,#64748b)' }
 
-  // Unique employees for the drawer list
-  const uniqueEmployees = []
-  const seen2 = {}
-  for (const emp of allEmployees) {
-    const key = `${(emp.first_name ?? '').toLowerCase()}|${(emp.last_name ?? '').toLowerCase()}`
-    if (seen2[key]) continue
-    seen2[key] = true
-    uniqueEmployees.push(emp)
-  }
+  const list = members.filter(e => !q || empName(e).toLowerCase().includes(q.toLowerCase()) || (e.job_title ?? '').toLowerCase().includes(q.toLowerCase()))
+  const candidates = employees.filter(e => e.department_id !== dept?.id && e.status === 'active')
 
-  const totalEmployees = Object.values(empCounts).reduce((a, b) => a + b, 0)
+  async function run(fn) { setBusy(true); try { await fn() } finally { setBusy(false) } }
 
   return (
-    <div className="space-y-5 fade-in">
-
-      {/* Page header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Departments</h2>
-          <p className="text-sm text-gray-400 mt-0.5">
-            {departments.length} department{departments.length !== 1 ? 's' : ''} · {totalEmployees} total employees
-          </p>
+    <Modal onClose={onClose} maxWidth="620px">
+      <div className="relative shrink-0 rounded-t-2xl overflow-hidden text-white" style={{ background: theme.gradient }}>
+        <div className="absolute inset-0 opacity-25" style={{ background: 'radial-gradient(ellipse at 10% 10%, white 0%, transparent 55%)' }} />
+        <div className="relative px-6 py-5 flex items-start gap-4">
+          <span className="w-12 h-12 rounded-2xl bg-white/20 flex items-center justify-center shrink-0">{dept ? <Building2 size={22} /> : <Inbox size={22} />}</span>
+          <div className="min-w-0 flex-1">
+            <p className="text-xl font-extrabold tracking-tight truncate">{dept?.name ?? 'Unassigned employees'}</p>
+            <p className="text-sm text-white/80 line-clamp-2">{dept ? dept.description || 'No description' : 'Active employees without a department'}</p>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-white/70 hover:text-white hover:bg-white/15"><X size={16} /></button>
         </div>
-        <button onClick={openAdd}
-          className="inline-flex items-center gap-2 px-4 py-2.5 text-white text-sm font-bold rounded-xl shadow-md transition-all self-start sm:self-auto"
-          style={{ background: 'linear-gradient(135deg,#4f46e5,#3b82f6)', boxShadow: '0 4px 14px rgba(79,70,229,0.3)' }}>
-          <Plus size={16} /> New Department
+        {dept && (
+          <div className="relative grid grid-cols-4 gap-2 px-6 pb-5">
+            {[
+              ['Members', members.length],
+              ['Active', card.active],
+              ['In today', card.rate == null ? '—' : `${card.rate}%`],
+              [canPay ? 'Avg salary' : 'Head', canPay ? (card.avgSalary ? money(card.avgSalary) : '—') : (card.head ? empName(card.head).split(' ')[0] : '—')],
+            ].map(([l, v]) => (
+              <div key={l} className="rounded-xl bg-white/15 px-3 py-2">
+                <p className="text-[10px] uppercase tracking-wider text-white/70">{l}</p>
+                <p className="text-sm font-bold truncate">{v}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search members…" className={`${INPUT_CLS} pl-9`} />
+          </div>
+          {dept && (
+            <button onClick={() => { setAdding(a => !a); setPicked(new Set()) }}
+              className={`flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-colors ${adding ? 'bg-[#1e3a8a] text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+              <UserPlus size={15} /> Add
+            </button>
+          )}
+        </div>
+
+        {adding && (
+          <div className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-3">
+            <p className="text-xs font-semibold text-gray-600 mb-2">Add active employees to {dept.name}</p>
+            <div className="max-h-48 overflow-y-auto space-y-1">
+              {candidates.length === 0 ? <p className="text-xs text-gray-400 py-2">Everyone is already here.</p> : candidates.map(e => (
+                <label key={e.id} className="flex items-center gap-3 px-2 py-1.5 rounded-lg hover:bg-white cursor-pointer">
+                  <Checkbox checked={picked.has(e.id)} onChange={() => setPicked(s => { const n = new Set(s); n.has(e.id) ? n.delete(e.id) : n.add(e.id); return n })} />
+                  <Avatar id={e.id} name={empName(e)} src={e.avatar_url || null} size="w-7 h-7 text-[10px]" rounded="rounded-full" />
+                  <span className="text-sm font-medium text-gray-700 flex-1 truncate">{empName(e)}</span>
+                  <span className="text-[11px] text-gray-400 truncate">{e.departments?.name ?? 'Unassigned'}</span>
+                </label>
+              ))}
+            </div>
+            {candidates.length > 0 && (
+              <div className="flex justify-end mt-2">
+                <PrimaryButton disabled={!picked.size || busy} busy={busy}
+                  onClick={() => run(async () => { await onMove([...picked], dept.id); setAdding(false); setPicked(new Set()) })}>
+                  Add {picked.size || ''}
+                </PrimaryButton>
+              </div>
+            )}
+          </div>
+        )}
+
+        {list.length === 0 ? (
+          <div className="flex flex-col items-center py-10 gap-2 text-gray-400">
+            <Users size={26} className="text-gray-300" />
+            <p className="text-sm">{members.length ? 'No members match' : dept ? 'No members yet — use Add' : 'Everyone has a department'}</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-50">
+            {list.map(e => {
+              const isHead = dept && dept.head_id === e.id
+              return (
+                <div key={e.id} className="flex items-center gap-3 py-2.5">
+                  <Avatar id={e.id} name={empName(e)} src={e.avatar_url || null} size="w-9 h-9 text-xs" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-gray-800 truncate flex items-center gap-1.5">
+                      {empName(e)}
+                      {isHead && <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-700"><Crown size={10} /> Head</span>}
+                      {e.status !== 'active' && <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold ${EMP_STATUS[e.status]?.badge ?? ''}`}>{EMP_STATUS[e.status]?.label}</span>}
+                    </p>
+                    <p className="text-[11px] text-gray-400 truncate">{e.job_title || 'No title'}</p>
+                  </div>
+                  {dept && !isHead && e.status === 'active' && (
+                    <button onClick={() => run(() => onSetHead(dept, e.id))} disabled={busy} title="Make head of department"
+                      className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-300 hover:text-amber-500 hover:bg-amber-50"><Crown size={14} /></button>
+                  )}
+                  <select value={e.department_id ?? ''} disabled={busy}
+                    onChange={ev => run(() => onMove([e.id], ev.target.value || null))}
+                    className="w-36 px-2 py-1.5 text-xs rounded-lg border border-gray-200 bg-gray-50 text-gray-600 focus:outline-none focus:ring-2 focus:ring-[#1e3a8a]/20">
+                    <option value="">Unassigned</option>
+                    {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </select>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {dept && (
+        <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-gray-100 shrink-0">
+          <button onClick={() => (confirm ? run(async () => { await onDelete(dept); onClose() }) : setConfirm(true))} disabled={busy}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-colors disabled:opacity-50 ${confirm ? 'bg-red-500 text-white hover:bg-red-600' : 'text-red-500 hover:bg-red-50'}`}>
+            <Trash2 size={14} /> {confirm ? `Confirm — unassigns ${members.length}` : 'Delete department'}
+          </button>
+          <PrimaryButton onClick={onEdit}><Pencil size={14} /> Edit</PrimaryButton>
+        </div>
+      )}
+    </Modal>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
+export default function DepartmentsPage() {
+  const { canAccessPayroll } = useAuth()
+  const [departments, setDepartments] = useState([])
+  const [employees,   setEmployees]   = useState([])
+  const [todayAtt,    setTodayAtt]    = useState([])
+  const [configs,     setConfigs]     = useState([])
+  const [loading,     setLoading]     = useState(true)
+  const [refreshing,  setRefreshing]  = useState(false)
+  const [search,      setSearch]      = useState('')
+  const [sort,        setSort]        = useState('name')
+  const [form,        setForm]        = useState(null)    // { dept?, index }
+  const [openId,      setOpenId]      = useState(null)    // dept id | '__none'
+  const [toast, showToast, dismissToast] = useToast()
+  const [armed, fire] = useArmed()
+  const reqId = useRef(0)
+
+  const fetchData = useCallback(async (soft = false) => {
+    const id = ++reqId.current
+    soft ? setRefreshing(true) : setLoading(true)
+    try {
+      const [depts, emps, att, cfgs] = await Promise.all([
+        db.getDepartments(), db.getEmployees(), db.getAttendanceByDate(TODAY),
+        canAccessPayroll ? db.getSalaryConfigs() : Promise.resolve([]),
+      ])
+      if (id !== reqId.current) return
+      setDepartments(depts); setEmployees(emps); setTodayAtt(att); setConfigs(cfgs)
+    } catch (err) {
+      if (id === reqId.current) showToast('error', err.message)
+    }
+    if (id === reqId.current) { setLoading(false); setRefreshing(false) }
+  }, [canAccessPayroll, showToast])
+
+  useEffect(() => { fetchData() }, [fetchData])
+
+  // ── Derived ──
+  const unique = useMemo(() => {
+    const dup = new Set(findDuplicates(employees))
+    return employees.filter(e => !dup.has(e.id))
+  }, [employees])
+
+  const cards = useMemo(() => {
+    const attBy  = Object.fromEntries(todayAtt.map(a => [a.employee_id, a.status]))
+    const salary = Object.fromEntries(configs.map(c => [c.employee_id, Number(c.basic_salary) || 0]))
+    const build = (dept, idx, members) => {
+      const active  = members.filter(e => e.status === 'active')
+      const holiday = active.filter(e => attBy[e.id] === 'holiday').length
+      const inToday = active.filter(e => ATTENDED.includes(attBy[e.id])).length
+      const sal     = active.map(e => salary[e.id]).filter(v => v > 0)
+      return {
+        dept, theme: deptTheme(dept, idx), members, active: active.length, inToday,
+        rate: active.length - holiday > 0 ? Math.round((inToday / (active.length - holiday)) * 100) : null,
+        payroll: sal.reduce((s, v) => s + v, 0), avgSalary: sal.length ? sal.reduce((s, v) => s + v, 0) / sal.length : null,
+        head: dept?.head_id ? unique.find(e => e.id === dept.head_id) : null,
+      }
+    }
+    return departments.map((d, i) => build(d, i, unique.filter(e => e.department_id === d.id)))
+  }, [departments, unique, todayAtt, configs])
+
+  const known = new Set(departments.map(d => d.id))
+  const unassigned = unique.filter(e => e.status === 'active' && (!e.department_id || !known.has(e.department_id)))
+
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return cards.filter(c => !q || c.dept.name.toLowerCase().includes(q) || (c.dept.description ?? '').toLowerCase().includes(q)).sort(SORTS[sort].fn)
+  }, [cards, search, sort])
+
+  const stats = useMemo(() => {
+    const active   = unique.filter(e => e.status === 'active')
+    const assigned = active.length - unassigned.length
+    const largest  = cards.reduce((b, c) => (!b || c.members.length > b.members.length ? c : b), null)
+    const inToday  = cards.reduce((s, c) => s + c.inToday, 0)
+    return {
+      active: active.length, assigned,
+      pct: active.length ? Math.round((assigned / active.length) * 100) : 0,
+      largest, avgTeam: cards.length ? assigned / cards.length : 0,
+      inToday, rateToday: active.length ? Math.round((inToday / active.length) * 100) : 0,
+      payroll: cards.reduce((s, c) => s + c.payroll, 0),
+    }
+  }, [unique, unassigned.length, cards])
+
+  const openCard = openId === '__none'
+    ? { dept: null, members: unassigned }
+    : cards.find(c => c.dept.id === openId) ?? null
+
+  // ── Mutations ──
+  async function saveDept(payload) {
+    if (form?.dept) {
+      await db.updateDepartment(form.dept.id, payload)
+      showToast('success', `${payload.name} updated`)
+    } else {
+      await db.addDepartment(payload)
+      showToast('success', `${payload.name} created`)
+    }
+    fetchData(true)
+  }
+
+  async function deleteDept(dept) {
+    try {
+      await db.deleteDepartment(dept.id)
+      showToast('success', `${dept.name} deleted · members unassigned`)
+      fetchData(true)
+    } catch (err) { showToast('error', err.message); throw err }
+  }
+
+  async function moveEmployees(ids, deptId) {
+    try {
+      const patch = await db.batchUpdateEmployees(ids, { department_id: deptId })
+      setEmployees(es => es.map(e => (ids.includes(e.id) ? { ...e, ...patch } : e)))
+      const target = deptId ? departments.find(d => d.id === deptId)?.name : 'Unassigned'
+      showToast('success', `${ids.length === 1 ? empName(employees.find(e => e.id === ids[0])) : `${ids.length} employees`} → ${target}`)
+    } catch (err) { showToast('error', err.message) }
+  }
+
+  async function setHead(dept, empId) {
+    try {
+      await db.updateDepartment(dept.id, { head_id: empId })
+      setDepartments(ds => ds.map(d => (d.id === dept.id ? { ...d, head_id: empId } : d)))
+      showToast('success', `${empName(employees.find(e => e.id === empId))} is now head of ${dept.name}`)
+    } catch (err) { showToast('error', err.message) }
+  }
+
+  async function quickDelete(c) {
+    if (!fire(`del-${c.dept.id}`)) return
+    try { await deleteDept(c.dept) } catch {}
+  }
+
+  function exportCSV() {
+    downloadCSV(visible.map(c => ({
+      Department: c.dept.name, Description: c.dept.description ?? '', Head: c.head ? empName(c.head) : '',
+      Members: c.members.length, Active: c.active, 'In Today': c.inToday, 'Attendance %': c.rate ?? '',
+      ...(canAccessPayroll ? { 'Monthly Base Payroll': c.payroll, 'Avg Salary': c.avgSalary ? Math.round(c.avgSalary) : '' } : {}),
+    })), `departments-${TODAY}.csv`)
+  }
+
+  // ── Render ──
+  return (
+    <div className="space-y-5 pb-10">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-extrabold text-gray-900 tracking-tight">Departments</h2>
+          <p className="text-sm text-gray-400 mt-1">Teams, heads and who works where</p>
+        </div>
+        <button onClick={() => setForm({ index: departments.length })}
+          className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-[#1e3a8a] text-white hover:bg-[#162d6e] shadow-sm transition-colors">
+          <Plus size={16} /> New department
         </button>
       </div>
 
-      {/* Department grid */}
+      {/* Overview */}
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
+        <HeroCard
+          ring={<RateRing pct={stats.pct} label="assigned" />}
+          eyebrow="Organisation"
+          headline={`${departments.length} department${departments.length !== 1 ? 's' : ''}`}
+          sub={`${stats.assigned} of ${stats.active} active employees assigned`}
+          stats={[
+            { label: 'Largest',  value: stats.largest ? `${stats.largest.dept.name} (${stats.largest.members.length})` : '—', Icon: Layers },
+            { label: 'Avg team', value: stats.avgTeam ? stats.avgTeam.toFixed(1) : '—', Icon: Users },
+          ]}
+        />
+        <StatCard label="Active employees" value={stats.active} Icon={UserCheck} iconCls="bg-emerald-50 text-emerald-500" sub={`${stats.assigned} in a department`} />
+        <StatCard label="Unassigned" value={unassigned.length} Icon={Inbox} iconCls="bg-amber-50 text-amber-500"
+          sub={unassigned.length ? 'Click to assign' : 'Everyone placed'} onClick={() => setOpenId('__none')} active={openId === '__none'} />
+        <StatCard label="In today" value={`${stats.rateToday}%`} Icon={CalendarCheck} iconCls="bg-sky-50 text-sky-500" sub={`${stats.inToday} of ${stats.active} present`} />
+        {canAccessPayroll
+          ? <StatCard label="Monthly base payroll" value={money(stats.payroll)} Icon={Wallet} iconCls="bg-indigo-50 text-indigo-500" sub="across all departments" />
+          : <StatCard label="Departments" value={departments.length} Icon={Building2} iconCls="bg-indigo-50 text-indigo-500" sub="in your organisation" />}
+      </div>
+
+      {/* Toolbar */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex flex-col md:flex-row md:items-center gap-2.5">
+        <SearchBox value={search} onChange={setSearch} placeholder="Search departments…" />
+        <div className="relative md:w-44">
+          <ArrowUpDown size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+          <select value={sort} onChange={e => setSort(e.target.value)}
+            className="w-full pl-8 pr-3 py-2.5 text-sm rounded-xl border border-gray-200 bg-gray-50 text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#1e3a8a]/20">
+            {Object.entries(SORTS).map(([k, s]) => <option key={k} value={k}>{s.label}</option>)}
+          </select>
+        </div>
+        <div className="flex items-center gap-2">
+          <ToolButton onClick={exportCSV} disabled={!visible.length} title="Export CSV"><Download size={15} /> <span className="hidden sm:inline">Export</span></ToolButton>
+          <ToolButton onClick={() => fetchData(true)} title="Refresh" className="!px-2.5"><RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} /></ToolButton>
+        </div>
+      </div>
+
+      {/* Cards */}
       {loading ? (
-        <div className="flex items-center justify-center py-24 gap-3 text-gray-400">
-          <Loader2 size={22} className="animate-spin text-indigo-600" />
-          <span className="text-sm">Loading departments…</span>
+        <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-5">
+          {[0, 1, 2].map(i => <div key={i} className="h-64 bg-white rounded-2xl border border-gray-100 shimmer" />)}
         </div>
       ) : departments.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-24 gap-3 text-gray-400">
-          <Building2 size={40} className="text-gray-200" />
-          <p className="text-sm font-medium">No departments yet. Click "New Department" to create the first one.</p>
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
+          <EmptyState Icon={Building2} title="No departments yet" sub="Create departments to organise your team."
+            action={<button onClick={() => setForm({ index: 0 })} className="text-xs font-semibold text-[#1e3a8a] hover:underline">Create the first one</button>} />
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-          {departments.map((dept, idx) => {
-            const count = empCounts[dept.id] ?? 0
-            const pal   = palette(idx)
-            return (
-              <div key={dept.id}
-                onClick={() => { setViewDept(dept); setViewIdx(idx) }}
-                className="bg-white rounded-2xl overflow-hidden cursor-pointer group transition-all duration-200 hover:-translate-y-1"
-                style={{ boxShadow: '0 1px 6px rgba(0,0,0,0.06)', border: '1px solid rgba(0,0,0,0.06)' }}
-                onMouseEnter={e => e.currentTarget.style.boxShadow = '0 12px 32px rgba(0,0,0,0.12)'}
-                onMouseLeave={e => e.currentTarget.style.boxShadow = '0 1px 6px rgba(0,0,0,0.06)'}
-              >
-                {/* ── Hero gradient banner ── */}
-                <div className="relative h-[88px] flex items-end px-5 pb-0"
-                  style={{ background: pal.gradient }}>
-
-                  {/* Subtle shine overlay */}
-                  <div className="absolute inset-0 opacity-20"
-                    style={{ background: 'radial-gradient(ellipse at 10% 20%, white 0%, transparent 55%)' }} />
-
-                  {/* Hover actions — top right */}
-                  <div className="absolute top-3 right-3 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity z-10"
-                    onClick={e => e.stopPropagation()}>
-                    <button onClick={() => openEdit(dept)}
-                      className="w-7 h-7 rounded-lg flex items-center justify-center text-white transition-colors"
-                      style={{ background: 'rgba(255,255,255,0.22)', backdropFilter: 'blur(4px)' }}
-                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.38)'}
-                      onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.22)'}>
-                      <Pencil size={13} />
-                    </button>
-                    <button onClick={() => setDeleteTarget(dept)}
-                      className="w-7 h-7 rounded-lg flex items-center justify-center text-white transition-colors"
-                      style={{ background: 'rgba(255,255,255,0.22)', backdropFilter: 'blur(4px)' }}
-                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.7)'}
-                      onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.22)'}>
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-
-                  {/* Icon — overlaps hero/body boundary */}
-                  <div className="relative z-10 w-12 h-12 rounded-xl bg-white flex items-center justify-center shadow-lg translate-y-6"
-                    style={{ boxShadow: '0 4px 14px rgba(0,0,0,0.18)' }}>
-                    <Building2 size={22} className={pal.iconText} />
-                  </div>
+        <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-5">
+          {visible.map((c, idx) => (
+            <div key={c.dept.id} onClick={() => setOpenId(c.dept.id)}
+              className="group bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden cursor-pointer transition-all duration-200 hover:-translate-y-1 hover:shadow-xl">
+              <div className="relative h-24 px-5 flex items-end" style={{ background: c.theme.gradient }}>
+                <div className="absolute inset-0 opacity-20" style={{ background: 'radial-gradient(ellipse at 10% 20%, white 0%, transparent 55%)' }} />
+                <div className="absolute top-3 right-3 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
+                  <button onClick={() => setForm({ dept: c.dept, index: idx })} title="Edit"
+                    className="w-8 h-8 rounded-lg flex items-center justify-center text-white bg-white/20 hover:bg-white/35 backdrop-blur"><Pencil size={14} /></button>
+                  <button onClick={() => quickDelete(c)} title={armed === `del-${c.dept.id}` ? 'Click again — members become unassigned' : 'Delete'}
+                    className={`h-8 rounded-lg flex items-center justify-center gap-1 text-white backdrop-blur transition-colors ${armed === `del-${c.dept.id}` ? 'px-2 bg-red-500 text-xs font-semibold' : 'w-8 bg-white/20 hover:bg-red-500/80'}`}>
+                    <Trash2 size={14} />{armed === `del-${c.dept.id}` && 'Confirm'}
+                  </button>
                 </div>
-
-                {/* ── Card body ── */}
-                <div className="pt-9 px-5 pb-5">
-                  <h3 className="font-extrabold text-gray-900 text-[15px] leading-tight tracking-tight">
-                    {dept.name}
-                  </h3>
-                  <p className="text-[13px] text-gray-400 mt-1.5 leading-relaxed line-clamp-2 min-h-[38px]">
-                    {dept.description ?? 'No description provided.'}
-                  </p>
-
-                  <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <div className={`w-6 h-6 rounded-md ${pal.icon} flex items-center justify-center`}>
-                        <Users size={12} className={pal.iconText} />
-                      </div>
-                      <span className="text-sm font-bold text-gray-700">
-                        {count}
-                      </span>
-                      <span className="text-sm text-gray-400">
-                        {count === 1 ? 'member' : 'members'}
-                      </span>
-                    </div>
-                    <span className="flex items-center gap-0.5 text-xs font-bold text-indigo-500 opacity-0 group-hover:opacity-100 group-hover:gap-1.5 transition-all">
-                      View team <ChevronRight size={12} />
-                    </span>
-                  </div>
+                <div className="relative w-12 h-12 rounded-xl bg-white flex items-center justify-center translate-y-6 shadow-lg">
+                  <Building2 size={22} style={{ color: c.theme.solid }} />
                 </div>
               </div>
-            )
-          })}
+              <div className="pt-9 px-5 pb-5">
+                <div className="flex items-start justify-between gap-2">
+                  <h3 className="font-extrabold text-gray-900 text-[15px] leading-tight truncate">{c.dept.name}</h3>
+                  {c.head && (
+                    <span className="flex items-center gap-1 text-[11px] font-semibold text-amber-700 bg-amber-50 rounded-full px-2 py-0.5 shrink-0" title="Head of department">
+                      <Crown size={11} /> {empName(c.head).split(' ')[0]}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[13px] text-gray-400 mt-1.5 leading-relaxed line-clamp-2 min-h-[38px]">{c.dept.description || 'No description provided.'}</p>
+
+                <div className="mt-3"><AvatarStack people={c.members} /></div>
+
+                <div className="grid grid-cols-3 gap-2 mt-4 pt-4 border-t border-gray-100">
+                  <div><p className="text-[10px] text-gray-400 uppercase tracking-wider">Members</p><p className="text-sm font-bold text-gray-800">{c.members.length}</p></div>
+                  <div>
+                    <p className="text-[10px] text-gray-400 uppercase tracking-wider">In today</p>
+                    <p className="text-sm font-bold text-gray-800">{c.rate == null ? '—' : `${c.rate}%`}</p>
+                    <div className="h-1 rounded-full bg-gray-100 mt-1 overflow-hidden"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${c.rate ?? 0}%` }} /></div>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-gray-400 uppercase tracking-wider">{canAccessPayroll ? 'Avg salary' : 'Active'}</p>
+                    <p className="text-sm font-bold text-gray-800">{canAccessPayroll ? (c.avgSalary ? money(c.avgSalary) : '—') : c.active}</p>
+                  </div>
+                </div>
+                <p className="flex items-center gap-0.5 text-xs font-bold text-[#1e3a8a] mt-3 opacity-0 group-hover:opacity-100 transition-opacity">Manage team <ChevronRight size={13} /></p>
+              </div>
+            </div>
+          ))}
+
+          {unassigned.length > 0 && !search && (
+            <button onClick={() => setOpenId('__none')}
+              className="rounded-2xl border-2 border-dashed border-gray-200 p-6 text-left hover:border-amber-300 hover:bg-amber-50/40 transition-colors">
+              <span className="w-12 h-12 rounded-xl bg-amber-50 text-amber-500 flex items-center justify-center"><Inbox size={22} /></span>
+              <p className="font-extrabold text-gray-900 mt-4">Unassigned</p>
+              <p className="text-sm text-gray-400 mt-1">{unassigned.length} active employee{unassigned.length !== 1 ? 's' : ''} without a department</p>
+              <div className="mt-3"><AvatarStack people={unassigned} /></div>
+              <p className="flex items-center gap-0.5 text-xs font-bold text-amber-700 mt-3">Assign now <ChevronRight size={13} /></p>
+            </button>
+          )}
         </div>
       )}
 
-      {/* Department drawer */}
-      {viewDept && (
-        <DeptDrawer
-          dept={viewDept}
-          employees={uniqueEmployees}
-          paletteIdx={viewIdx}
-          onClose={() => setViewDept(null)}
-          onEdit={() => openEdit(viewDept)}
-        />
+      {openCard && (
+        <TeamModal card={openCard} departments={departments} employees={unique} canPay={canAccessPayroll}
+          onClose={() => setOpenId(null)}
+          onEdit={() => { const i = departments.findIndex(d => d.id === openCard.dept.id); setOpenId(null); setForm({ dept: openCard.dept, index: i }) }}
+          onDelete={deleteDept} onMove={moveEmployees} onSetHead={setHead} />
       )}
-
-      {/* Modals */}
-      {modal.open && (
-        <DeptModal
-          mode={modal.mode}
-          formData={form}
-          onChange={setForm}
-          onClose={closeModal}
-          onSubmit={handleSave}
-          loading={submitting}
-        />
+      {form && (
+        <DeptForm dept={form.dept} index={form.index ?? 0} departments={departments} employees={unique}
+          onClose={() => setForm(null)} onSubmit={saveDept} />
       )}
-
-      <DeleteModal
-        dept={deleteTarget}
-        loading={deleting}
-        onConfirm={handleDelete}
-        onCancel={() => setDeleteTarget(null)}
-      />
 
       <Toast toast={toast} onDismiss={dismissToast} />
     </div>

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import * as db from '../../lib/db'
 import { useCompany } from '../../context/CompanyContext'
 import {
@@ -396,7 +397,8 @@ export default function DailyAttendance() {
   const SHIFT_START = company.shift_start || '09:00'
   const today = toDateStr(new Date())
 
-  const [date,       setDate]       = useState(today)
+  const [params]                    = useSearchParams()
+  const [date,       setDate]       = useState(() => (/^\d{4}-\d{2}-\d{2}$/.test(params.get('date') ?? '') ? params.get('date') : today))
   const [employees,  setEmployees]  = useState([])
   const [records,    setRecords]    = useState({})   // employee_id → attendance doc
   const [loading,    setLoading]    = useState(true)
