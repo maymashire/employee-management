@@ -1,9 +1,12 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Eye, EyeOff, Lock, Mail, ShieldCheck, Users, BarChart3, Zap, CheckCircle2 } from 'lucide-react'
+import { useNavigate, Navigate } from 'react-router-dom'
+import { Eye, EyeOff, Lock, Mail, ShieldCheck, Users, BarChart3, Zap, CheckCircle2, Info } from 'lucide-react'
+import { useAuth, LOGOUT_REASON_KEY } from '../context/AuthContext'
 
-const VALID_EMAIL    = 'maryan@gmail.com'
-const VALID_PASSWORD = '123456'
+const LOGOUT_MESSAGES = {
+  idle:     'You were signed out after a period of inactivity.',
+  disabled: 'Your account has been disabled. Contact your administrator.',
+}
 
 const FEATURES = [
   { icon: Users,      text: 'Manage your entire workforce in one place' },
@@ -23,18 +26,24 @@ export default function Login() {
   const [showPwd,  setShowPwd]  = useState(false)
   const [error,    setError]    = useState('')
   const [loading,  setLoading]  = useState(false)
+  const [remember, setRemember] = useState(true)
+  const [showHelp, setShowHelp] = useState(false)
+  const [notice]                = useState(() => LOGOUT_MESSAGES[sessionStorage.getItem(LOGOUT_REASON_KEY)] ?? '')
   const navigate = useNavigate()
+  const { profile, signIn, landingPage } = useAuth()
+
+  if (profile && !loading) return <Navigate to={landingPage} replace />
 
   async function handleSubmit(e) {
     e.preventDefault()
     setError('')
+    if (!email.trim() || !password) { setError('Enter your email and password.'); return }
     setLoading(true)
-    await new Promise(r => setTimeout(r, 600))
-    if (email.trim().toLowerCase() === VALID_EMAIL && password === VALID_PASSWORD) {
-      sessionStorage.setItem('wf_auth', '1')
-      navigate('/dashboard', { replace: true })
-    } else {
-      setError('Invalid email or password. Please try again.')
+    try {
+      const u = await signIn(email, password, remember)
+      navigate(u.preferences?.landing ?? '/dashboard', { replace: true })
+    } catch (err) {
+      setError(err.message || 'Invalid email or password. Please try again.')
       setLoading(false)
     }
   }
@@ -145,6 +154,14 @@ export default function Login() {
             <p className="text-gray-400 text-sm mt-1">Sign in to continue to your dashboard.</p>
           </div>
 
+          {notice && !error && (
+            <div className="flex items-start gap-2.5 bg-amber-50 border border-amber-200 text-amber-800
+              text-sm px-4 py-3 rounded-xl mb-6">
+              <Info size={16} className="shrink-0 mt-0.5" />
+              <span>{notice}</span>
+            </div>
+          )}
+
           {/* Error */}
           {error && (
             <div className="flex items-start gap-2.5 bg-red-50 border border-red-200 text-red-700
@@ -176,7 +193,8 @@ export default function Login() {
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="text-sm font-semibold text-gray-700">Password</label>
-                <button type="button" className="text-xs font-medium text-indigo-600 hover:text-indigo-800 transition-colors">
+                <button type="button" onClick={() => setShowHelp(h => !h)}
+                  className="text-xs font-medium text-indigo-600 hover:text-indigo-800 transition-colors">
                   Forgot password?
                 </button>
               </div>
@@ -197,6 +215,18 @@ export default function Login() {
                 </button>
               </div>
             </div>
+
+            {showHelp && (
+              <p className="text-xs text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-xl px-3.5 py-2.5 -mt-2">
+                Ask your system administrator to reset it from the <b>Users</b> page.
+              </p>
+            )}
+
+            <label className="flex items-center gap-2 text-sm text-gray-600 select-none cursor-pointer -mt-1">
+              <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)}
+                className="w-4 h-4 rounded border-gray-300 accent-indigo-600" />
+              Keep me signed in
+            </label>
 
             <button
               type="submit" disabled={loading}

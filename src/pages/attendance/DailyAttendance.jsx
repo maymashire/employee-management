@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import * as db from '../../lib/db'
+import { useCompany } from '../../context/CompanyContext'
 import {
   CalendarDays, ChevronLeft, ChevronRight, Loader2, CheckCircle2, AlertCircle, X,
   Search, Download, RefreshCw, Pencil, Trash2, UserCheck, Clock, UserX, Sun,
@@ -7,7 +8,6 @@ import {
 } from 'lucide-react'
 
 // ── Constants ──────────────────────────────────────────────────────────────────
-const SHIFT_START = '09:00'
 
 const STATUS_META = {
   present: {
@@ -201,7 +201,7 @@ function QuickMark({ row, busy, isAllowed, onMark, stretch = false }) {
 }
 
 // ── Edit modal ─────────────────────────────────────────────────────────────────
-function EditModal({ row, isFuture, onClose, onSave, onClear }) {
+function EditModal({ row, isFuture, shiftStart, onClose, onSave, onClear }) {
   const a = row.attendance
   const [form, setForm] = useState({
     status:    a?.status ?? (isFuture ? 'holiday' : 'present'),
@@ -221,7 +221,7 @@ function EditModal({ row, isFuture, onClose, onSave, onClear }) {
 
   const timed    = TIMED_STATUSES.includes(form.status)
   const worked   = timed ? workedMins(form.clock_in, form.clock_out) : null
-  const lateHint = form.status === 'present' && form.clock_in && form.clock_in > SHIFT_START
+  const lateHint = form.status === 'present' && form.clock_in && form.clock_in > shiftStart
   const set      = patch => { setForm(f => ({ ...f, ...patch })); setError('') }
 
   async function submit(e) {
@@ -330,7 +330,7 @@ function EditModal({ row, isFuture, onClose, onSave, onClear }) {
               </div>
               {lateHint && (
                 <div className="mt-3 flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800">
-                  <span className="flex items-center gap-2"><AlertCircle size={14} /> Arrived after {fmtTime(SHIFT_START)}</span>
+                  <span className="flex items-center gap-2"><AlertCircle size={14} /> Arrived after {fmtTime(shiftStart)}</span>
                   <button type="button" onClick={() => set({ status: 'late' })}
                     className="px-2.5 py-1 rounded-lg bg-amber-500 text-white font-semibold hover:bg-amber-600 transition-colors">
                     Mark Late
@@ -392,6 +392,8 @@ function EditModal({ row, isFuture, onClose, onSave, onClear }) {
 // PAGE
 // ════════════════════════════════════════════════════════════════════════════════
 export default function DailyAttendance() {
+  const { company } = useCompany()
+  const SHIFT_START = company.shift_start || '09:00'
   const today = toDateStr(new Date())
 
   const [date,       setDate]       = useState(today)
@@ -926,6 +928,7 @@ export default function DailyAttendance() {
 
       {editing && (
         <EditModal
+          shiftStart={SHIFT_START}
           row={rows.find(r => r.id === editing.id) ?? editing}
           isFuture={isFuture}
           onClose={() => setEditing(null)}

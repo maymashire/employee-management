@@ -1,508 +1,461 @@
-import { useState, useEffect, useCallback } from 'react'
-import * as db from '../lib/db'
+/**
+ * Settings — personal profile (photo, name, phone), security (password),
+ * preferences (start page, idle sign-out) and, for Admins, company settings.
+ */
+import { useState, useRef, useEffect } from 'react'
+import { useSearchParams, useNavigate, Link } from 'react-router-dom'
 import {
-  ShieldCheck, UserPlus, Pencil, Trash2, X,
-  Loader2, CheckCircle2, AlertCircle,
-  Crown, Users, DollarSign, Briefcase, Mail,
+  UserCircle2, ShieldCheck, SlidersHorizontal, Building2, UsersRound, Camera, Upload, Trash2,
+  Lock, Mail, Phone, KeyRound, LogOut, Monitor, CalendarClock, LayoutDashboard, Users as UsersIcon,
+  CalendarDays, Wallet, Activity, Timer, Clock, Save, ChevronRight, Loader2, Sparkles,
 } from 'lucide-react'
+import { useAuth } from '../context/AuthContext'
+import { useCompany, COMPANY_DEFAULTS } from '../context/CompanyContext'
+import { RoleBadge } from '../components/roles'
+import { PasswordInput, NewPasswordFields } from '../components/PasswordInput'
+import { validateNewPassword } from '../lib/password'
+import { fileToAvatar, MAX_UPLOAD_MB } from '../lib/image'
+import { useToast, Toast, Avatar, ErrorNote, INPUT_CLS, fmtDate, fmtDateTime } from '../components/ui'
 
-// ── Role config ────────────────────────────────────────────────────────────────
-const USER_ROLES = ['Admin', 'HR', 'Finance', 'Manager']
+const TABS = [
+  { key: 'profile',     label: 'Profile',     Icon: UserCircle2,       desc: 'Photo and personal details' },
+  { key: 'security',    label: 'Security',    Icon: ShieldCheck,       desc: 'Password and sign-in' },
+  { key: 'preferences', label: 'Preferences', Icon: SlidersHorizontal, desc: 'Start page and auto sign-out' },
+  { key: 'company',     label: 'Company',     Icon: Building2,         desc: 'Branding, work hours, payroll', admin: true },
+]
 
-const ROLE_META = {
-  Admin:   { label: 'Admin',   Icon: Crown,      cls: 'bg-amber-100   text-amber-700',   badge: 'bg-amber-50   text-amber-600   border-amber-200'   },
-  HR:      { label: 'HR',      Icon: Users,      cls: 'bg-emerald-100 text-emerald-700', badge: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-  Finance: { label: 'Finance', Icon: DollarSign, cls: 'bg-blue-100    text-blue-700',    badge: 'bg-blue-50    text-blue-600    border-blue-200'     },
-  Manager: { label: 'Manager', Icon: Briefcase,  cls: 'bg-purple-100  text-purple-700',  badge: 'bg-purple-50  text-purple-700  border-purple-200'   },
-}
+const LANDING = [
+  { path: '/dashboard',           label: 'Dashboard',        Icon: LayoutDashboard },
+  { path: '/employees',           label: 'Employees',        Icon: UsersIcon },
+  { path: '/attendance/daily',    label: 'Daily attendance', Icon: CalendarDays },
+  { path: '/payroll/process',     label: 'Payroll',          Icon: Wallet, payroll: true },
+  { path: '/analytics',           label: 'Analytics',        Icon: Activity },
+]
 
-// ── Toast ──────────────────────────────────────────────────────────────────────
-function Toast({ toast, onDismiss }) {
-  useEffect(() => {
-    if (!toast) return
-    const id = setTimeout(onDismiss, 4500)
-    return () => clearTimeout(id)
-  }, [toast, onDismiss])
-  if (!toast) return null
-  const ok = toast.type === 'success'
+const IDLE = [
+  { value: 0,  label: 'Never' },
+  { value: 15, label: '15 min' },
+  { value: 30, label: '30 min' },
+  { value: 60, label: '1 hour' },
+]
+
+function Card({ title, sub, Icon, children, footer }) {
   return (
-    <div className={`fixed bottom-4 left-4 right-4 sm:left-auto sm:right-6 sm:bottom-6 sm:max-w-sm z-50 flex items-center gap-3 px-4 py-3 rounded-xl shadow-xl border text-sm font-medium
-      ${ok ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
-      {ok ? <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />
-           : <AlertCircle  size={16} className="text-red-500 shrink-0" />}
-      <span className="flex-1">{toast.message}</span>
-      <button onClick={onDismiss} className="opacity-50 hover:opacity-100"><X size={14} /></button>
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="flex items-start gap-3 px-5 py-4 border-b border-gray-100">
+        {Icon && <span className="w-9 h-9 rounded-xl bg-indigo-50 text-[#1e3a8a] flex items-center justify-center shrink-0"><Icon size={17} /></span>}
+        <div>
+          <h3 className="text-base font-bold text-gray-900">{title}</h3>
+          {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
+        </div>
+      </div>
+      <div className="p-5">{children}</div>
+      {footer && <div className="flex items-center justify-end gap-2 px-5 py-3.5 border-t border-gray-100 bg-gray-50/50">{footer}</div>}
     </div>
   )
 }
 
-// ── Role badge ─────────────────────────────────────────────────────────────────
-function RoleBadge({ role }) {
-  const meta = ROLE_META[role]
-  if (!meta) return <span className="text-xs text-gray-400">—</span>
-  const { Icon } = meta
+function SaveButton({ busy, disabled, children = 'Save changes', ...props }) {
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${meta.badge}`}>
-      <Icon size={11} />
-      {meta.label}
-    </span>
+    <button {...props} disabled={busy || disabled}
+      className="flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold text-white bg-[#1e3a8a] hover:bg-[#162d6e] disabled:opacity-50 transition-colors">
+      {busy ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} {children}
+    </button>
   )
 }
 
-// ── Grant / Edit modal ─────────────────────────────────────────────────────────
-function AccessModal({ mode, initial, employees, onClose, onSave, loading }) {
-  const [username,    setUsername]   = useState(initial?.username    ?? '')
-  const [role,        setRole]       = useState(initial?.role        ?? 'HR')
-  const [employeeId,  setEmployeeId] = useState(initial?.employee_id ?? '')
+function Field({ label, Icon, children, hint }) {
+  return (
+    <label className="block">
+      <span className="text-xs font-medium text-gray-500 flex items-center gap-1.5">{Icon && <Icon size={12} />} {label}</span>
+      <div className="mt-1">{children}</div>
+      {hint && <span className="block text-[11px] text-gray-400 mt-1">{hint}</span>}
+    </label>
+  )
+}
 
-  const isEdit = mode === 'edit'
+// ── Profile ──────────────────────────────────────────────────────────────────
+function ProfileTab({ toast }) {
+  const { profile, displayName, avatarUrl, updateMe } = useAuth()
+  const [form, setForm]   = useState({ name: profile.name ?? '', phone: profile.phone ?? '' })
+  const [busy, setBusy]   = useState(false)
+  const [photoBusy, setPhotoBusy] = useState(false)
+  const [drag, setDrag]   = useState(false)
+  const [error, setError] = useState('')
+  const fileRef = useRef(null)
 
-  function handleSubmit(e) {
+  const dirty = form.name.trim() !== (profile.name ?? '') || form.phone.trim() !== (profile.phone ?? '')
+
+  async function upload(file) {
+    if (!file) return
+    setPhotoBusy(true); setError('')
+    try {
+      const url = await fileToAvatar(file)
+      await updateMe({ avatar_url: url })
+      toast('success', 'Profile photo updated')
+    } catch (err) {
+      setError(err.message)
+    }
+    setPhotoBusy(false)
+    if (fileRef.current) fileRef.current.value = ''
+  }
+
+  async function removePhoto() {
+    setPhotoBusy(true)
+    try { await updateMe({ avatar_url: null }); toast('success', 'Profile photo removed') }
+    catch (err) { setError(err.message) }
+    setPhotoBusy(false)
+  }
+
+  async function save(e) {
     e.preventDefault()
-    onSave({ username: username.trim(), role, employee_id: employeeId || null })
+    if (!form.name.trim()) { setError('Your name cannot be empty.'); return }
+    setBusy(true); setError('')
+    try { await updateMe({ name: form.name.trim(), phone: form.phone.trim() }); toast('success', 'Profile saved') }
+    catch (err) { setError(err.message) }
+    setBusy(false)
   }
-
-  const inputCls =
-    'w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-800 ' +
-    'placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#1e3a8a]/25 focus:border-[#1e3a8a] transition-colors'
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-
-        {/* Header */}
-        <div className="flex items-start justify-between px-6 py-5 border-b border-gray-100">
-          <div>
-            <h2 className="text-base font-bold text-gray-900">
-              {isEdit ? 'Edit System Role' : 'Grant System Access'}
-            </h2>
-            <p className="text-xs text-gray-400 mt-0.5">
-              {isEdit
-                ? 'Change the role assigned to this user.'
-                : 'Link a Firebase email address to a system role.'
-              }
-            </p>
-          </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 transition-colors">
-            <X size={17} />
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
-
-          {/* Email / username */}
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
-              Email Address
-            </label>
-            <div className="relative">
-              <Mail size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-              <input
-                type="email"
-                required
-                placeholder="user@company.com"
-                value={username}
-                onChange={e => setUsername(e.target.value)}
-                disabled={isEdit}
-                className={`${inputCls} pl-9 ${isEdit ? 'opacity-60 cursor-not-allowed bg-gray-50' : ''}`}
-              />
-            </div>
-            {!isEdit && (
-              <p className="text-[11px] text-gray-400 mt-1.5">
-                Enter the user's email address. They can log in once added here.
-              </p>
-            )}
-          </div>
-
-          {/* Role */}
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
-              System Role
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              {USER_ROLES.map(r => {
-                const meta = ROLE_META[r]
-                const Icon = meta.Icon
-                const active = role === r
-                return (
-                  <button
-                    key={r}
-                    type="button"
-                    onClick={() => setRole(r)}
-                    className={`flex items-center gap-2.5 px-3.5 py-3 rounded-xl border text-sm font-semibold transition-all
-                      ${active
-                        ? `${meta.cls} border-current ring-2 ring-current/20`
-                        : 'border-gray-200 text-gray-500 hover:border-gray-300 hover:bg-gray-50'
-                      }`}
-                  >
-                    <Icon size={15} />
-                    {meta.label}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Employee link (optional) */}
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
-              Link to Employee <span className="normal-case font-normal text-gray-400">(optional)</span>
-            </label>
-            <select
-              value={employeeId}
-              onChange={e => setEmployeeId(e.target.value)}
-              className={inputCls}
-            >
-              <option value="">— Not linked —</option>
-              {employees.map(e => (
-                <option key={e.id} value={e.id}>
-                  {e.first_name} {e.last_name}{e.email ? ` (${e.email})` : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Actions */}
-          <div className="flex gap-3 pt-1">
-            <button type="button" onClick={onClose}
-              className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors">
-              Cancel
-            </button>
-            <button type="submit" disabled={loading}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[#1e3a8a] hover:bg-[#162d6e] text-white text-sm font-semibold transition-colors disabled:opacity-60">
-              {loading && <Loader2 size={14} className="animate-spin" />}
-              {isEdit ? 'Save Changes' : 'Grant Access'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  )
-}
-
-// ── Revoke confirmation modal ──────────────────────────────────────────────────
-function RevokeModal({ user, loading, onConfirm, onCancel }) {
-  if (!user) return null
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 text-center">
-        <div className="w-14 h-14 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-          <Trash2 size={22} className="text-red-600" />
-        </div>
-        <h3 className="text-lg font-bold text-gray-900">Revoke Access</h3>
-        <p className="text-sm text-gray-500 mt-2 leading-relaxed">
-          Remove system access for{' '}
-          <span className="font-semibold text-gray-800">{user.username}</span>?<br />
-          Their employee record will remain intact.
-        </p>
-        <div className="flex gap-3 mt-6">
-          <button onClick={onCancel}
-            className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors">
-            Cancel
-          </button>
-          <button onClick={onConfirm} disabled={loading}
-            className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-semibold transition-colors disabled:opacity-60">
-            {loading && <Loader2 size={14} className="animate-spin" />}
-            Revoke
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ── Main page ──────────────────────────────────────────────────────────────────
-export default function SettingsPage() {
-  const [users,       setUsers]       = useState([])
-  const [employees,   setEmployees]   = useState([])
-  const [loading,     setLoading]     = useState(true)
-  const [saving,      setSaving]      = useState(false)
-  const [revoking,    setRevoking]    = useState(false)
-  const [toast,       setToast]       = useState(null)
-  const [modal,       setModal]       = useState(null)   // { mode: 'add'|'edit', initial? }
-  const [revokeTarget, setRevokeTarget] = useState(null)
-
-  const showToast    = useCallback((type, msg) => setToast({ type, message: msg }), [])
-  const dismissToast = useCallback(() => setToast(null), [])
-
-  // ── Fetch ──────────────────────────────────────────────────────────────────
-  const fetchUsers = useCallback(async () => {
-    try {
-      const data = await db.getSystemUsers()
-      setUsers(data)
-    } catch (err) {
-      showToast('error', err.message)
-    }
-  }, [showToast])
-
-  const fetchEmployees = useCallback(async () => {
-    try {
-      const data = await db.getEmployees()
-      setEmployees(data.filter(e => e.status === 'active'))
-    } catch {}
-  }, [])
-
-  useEffect(() => {
-    setLoading(true)
-    Promise.all([fetchUsers(), fetchEmployees()]).finally(() => setLoading(false))
-  }, [fetchUsers, fetchEmployees])
-
-  // ── Save (add or edit) ─────────────────────────────────────────────────────
-  async function handleSave({ username, role, employee_id }) {
-    setSaving(true)
-
-    let error
-    if (modal.mode === 'add') {
-      // Check for duplicate against already-loaded users list
-      if (users.some(u => u.username === username)) {
-        showToast('error', `${username} already has system access. Use "Edit Role" instead.`)
-        setSaving(false)
-        return
-      }
-      try {
-        await db.addSystemUser({ username, role, employee_id })
-      } catch (e) { error = e }
-    } else {
-      try {
-        await db.updateSystemUser(username, { role, employee_id })
-      } catch (e) { error = e }
-    }
-
-    setSaving(false)
-    if (error) {
-      showToast('error', error.message)
-      return
-    }
-
-    showToast('success', modal.mode === 'add'
-      ? `Access granted to ${username} as ${role}.`
-      : `Role updated to ${role}.`)
-    setModal(null)
-    fetchUsers()
-  }
-
-  // ── Revoke ─────────────────────────────────────────────────────────────────
-  async function handleRevoke() {
-    if (!revokeTarget) return
-    setRevoking(true)
-    try {
-      await db.deleteSystemUser(revokeTarget.username)
-      showToast('success', `Access revoked for ${revokeTarget.username}.`)
-      setUsers(prev => prev.filter(u => u.username !== revokeTarget.username))
-    } catch (err) {
-      showToast('error', err.message)
-    }
-    setRevoking(false)
-    setRevokeTarget(null)
-  }
-
-  // ── Stats ──────────────────────────────────────────────────────────────────
-  const roleCount = USER_ROLES.reduce((acc, r) => {
-    acc[r] = users.filter(u => u.role === r).length
-    return acc
-  }, {})
-
-  const getEmpName = user => {
-    if (user.employees) return `${user.employees.first_name} ${user.employees.last_name}`
-    if (user.employee_id) {
-      const emp = employees.find(e => e.id === user.employee_id)
-      return emp ? `${emp.first_name} ${emp.last_name}` : '—'
-    }
-    return '—'
-  }
-
-  const initials = (email = '') => email.slice(0, 2).toUpperCase()
 
   return (
     <div className="space-y-5">
-
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-bold text-gray-900">User Access Management</h2>
-          <p className="text-sm text-gray-400 mt-0.5">
-            Manage which accounts can log in and what they can access.
-          </p>
-        </div>
-        <button
-          onClick={() => setModal({ mode: 'add' })}
-          className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#1e3a8a] hover:bg-[#162d6e] text-white text-sm font-semibold rounded-xl shadow-sm transition-colors self-start sm:self-auto"
-        >
-          <UserPlus size={15} /> Grant Access
-        </button>
-      </div>
-
-      {/* Role stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {USER_ROLES.map(r => {
-          const { Icon, cls } = ROLE_META[r]
-          return (
-            <div key={r} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs text-gray-500 font-medium">{r}</p>
-                <p className="text-3xl font-extrabold text-gray-900 mt-1">{roleCount[r]}</p>
+      <Card title="Profile photo" sub="Shown in the top bar, sidebar and user list" Icon={Camera}>
+        <div className="flex flex-col sm:flex-row sm:items-center gap-5">
+          <div className="relative self-start">
+            <Avatar id={profile.id} name={displayName} src={avatarUrl} size="w-24 h-24 text-2xl" rounded="rounded-2xl" />
+            {photoBusy && (
+              <div className="absolute inset-0 rounded-2xl bg-white/70 flex items-center justify-center">
+                <Loader2 size={20} className="animate-spin text-[#1e3a8a]" />
               </div>
-              <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${cls}`}>
-                <Icon size={20} />
-              </div>
-            </div>
-          )
-        })}
-      </div>
-
-      {/* How access works — info strip */}
-      <div className="bg-blue-50 border border-blue-200 rounded-2xl px-5 py-4 flex items-start gap-3">
-        <ShieldCheck size={18} className="text-blue-500 shrink-0 mt-0.5" />
-        <div className="text-xs text-blue-700 leading-relaxed">
-          <span className="font-semibold">How it works: </span>
-          Click <span className="font-semibold">"Grant Access"</span> and enter the user's email and role.
-          The system will create their access profile immediately.
+            )}
+          </div>
+          <div
+            onDragOver={e => { e.preventDefault(); setDrag(true) }}
+            onDragLeave={() => setDrag(false)}
+            onDrop={e => { e.preventDefault(); setDrag(false); upload(e.dataTransfer.files?.[0]) }}
+            onClick={() => fileRef.current?.click()}
+            className={`flex-1 cursor-pointer rounded-2xl border-2 border-dashed px-5 py-6 text-center transition-colors
+              ${drag ? 'border-[#1e3a8a] bg-indigo-50/60' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`}
+          >
+            <Upload size={20} className="mx-auto text-gray-400" />
+            <p className="text-sm font-semibold text-gray-700 mt-2">Drop a photo here or <span className="text-[#1e3a8a]">browse</span></p>
+            <p className="text-[11px] text-gray-400 mt-1">JPG, PNG or WebP · up to {MAX_UPLOAD_MB} MB · cropped to a square</p>
+            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={e => upload(e.target.files?.[0])} />
+          </div>
         </div>
-      </div>
-
-      {/* Users table */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100">
-          <h3 className="text-sm font-bold text-gray-800">
-            Active System Users
-            <span className="ml-2 text-gray-400 font-normal">({users.length})</span>
-          </h3>
-        </div>
-
-        {loading ? (
-          <div className="flex items-center justify-center gap-3 py-20 text-gray-400">
-            <Loader2 size={22} className="animate-spin text-blue-500" />
-            <span className="text-sm">Loading users…</span>
-          </div>
-        ) : users.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 gap-3 text-gray-400">
-            <ShieldCheck size={40} className="text-gray-200" />
-            <p className="text-sm font-medium">No users configured yet.</p>
-            <button onClick={() => setModal({ mode: 'add' })}
-              className="text-xs text-blue-600 hover:text-blue-800 font-semibold underline underline-offset-2">
-              Grant the first access record →
-            </button>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[600px]">
-              <thead>
-                <tr className="border-b border-gray-100 bg-gray-50/60">
-                  {['User','Role','Linked Employee','Actions'].map(h => (
-                    <th key={h} className="px-5 py-3 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider last:text-right">
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {users.map(u => (
-                  <tr key={u.username} className="group hover:bg-gray-50/40 transition-colors">
-
-                    {/* User */}
-                    <td className="px-5 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
-                          <span className="text-xs font-bold text-indigo-600">{initials(u.username)}</span>
-                        </div>
-                        <p className="font-semibold text-gray-800 text-xs truncate max-w-[180px]">{u.username}</p>
-                      </div>
-                    </td>
-
-                    {/* Role */}
-                    <td className="px-5 py-4"><RoleBadge role={u.role} /></td>
-
-                    {/* Linked employee */}
-                    <td className="px-5 py-4 text-gray-500 text-xs">{getEmpName(u)}</td>
-
-                    {/* Actions */}
-                    <td className="px-5 py-4 text-right">
-                      <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button
-                          onClick={() => setModal({ mode: 'edit', initial: u })}
-                          className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-gray-500 rounded-lg hover:bg-blue-50 hover:text-blue-700 transition-colors"
-                          title="Edit role"
-                        >
-                          <Pencil size={12} /> Edit Role
-                        </button>
-                        <button
-                          onClick={() => setRevokeTarget(u)}
-                          className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-gray-500 rounded-lg hover:bg-red-50 hover:text-red-600 transition-colors"
-                          title="Revoke access"
-                        >
-                          <Trash2 size={12} /> Revoke
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        {avatarUrl && (
+          <button onClick={removePhoto} disabled={photoBusy}
+            className="mt-4 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50">
+            <Trash2 size={13} /> Remove photo
+          </button>
         )}
-      </div>
+      </Card>
 
-      {/* Role permission reference */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-        <h3 className="text-sm font-bold text-gray-800 mb-4">Role Permissions Reference</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {[
-            {
-              role: 'Admin',
-              perms: ['Full system access', 'User management', 'Payroll & Reports', 'All employee data'],
-            },
-            {
-              role: 'HR',
-              perms: ['Employee management', 'Attendance tracking', 'Department management', 'View analytics'],
-            },
-            {
-              role: 'Finance',
-              perms: ['Payroll processing', 'Salary management', 'Financial reports', 'Payslips'],
-            },
-            {
-              role: 'Manager',
-              perms: ['View team attendance', 'View employee list', 'Dashboard access', 'Read-only analytics'],
-            },
-          ].map(({ role, perms }) => {
-            const { cls, Icon } = ROLE_META[role]
-            return (
-              <div key={role} className={`rounded-xl p-4 ${cls.replace('bg-', 'bg-').replace('text-', 'border-')} border`}>
-                <div className="flex items-center gap-2 mb-3">
-                  <Icon size={14} />
-                  <span className="text-xs font-bold">{role}</span>
-                </div>
-                <ul className="space-y-1">
-                  {perms.map(p => (
-                    <li key={p} className="flex items-start gap-1.5 text-[11px] opacity-80">
-                      <CheckCircle2 size={10} className="shrink-0 mt-0.5" />
-                      {p}
-                    </li>
-                  ))}
-                </ul>
+      <form onSubmit={save}>
+        <Card title="Personal information" sub="How you appear across the system" Icon={UserCircle2}
+          footer={<SaveButton type="submit" busy={busy} disabled={!dirty} />}>
+          <div className="grid sm:grid-cols-2 gap-4">
+            <Field label="Full name">
+              <input value={form.name} onChange={e => { setForm(f => ({ ...f, name: e.target.value })); setError('') }}
+                placeholder="Your name" className={INPUT_CLS} />
+            </Field>
+            <Field label="Phone" Icon={Phone}>
+              <input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
+                placeholder="+252 61 …" className={INPUT_CLS} />
+            </Field>
+            <Field label="Email" Icon={Mail} hint="Used to sign in · ask an Admin to change it">
+              <div className="relative">
+                <input value={profile.username ?? ''} disabled className={`${INPUT_CLS} pr-9 opacity-70 cursor-not-allowed`} />
+                <Lock size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
               </div>
+            </Field>
+            <Field label="Role" hint="Roles are managed by Admins">
+              <div className="h-[42px] flex items-center"><RoleBadge role={profile.role} /></div>
+            </Field>
+          </div>
+          <div className="mt-4"><ErrorNote>{error}</ErrorNote></div>
+        </Card>
+      </form>
+    </div>
+  )
+}
+
+// ── Security ─────────────────────────────────────────────────────────────────
+function SecurityTab({ toast }) {
+  const { profile, changePassword, signOut } = useAuth()
+  const navigate = useNavigate()
+  const [current, setCurrent] = useState('')
+  const [next,    setNext]    = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [showCur, setShowCur] = useState(false)
+  const [busy,    setBusy]    = useState(false)
+  const [error,   setError]   = useState('')
+  const remembered = (() => { try { return !!localStorage.getItem('wf_session') } catch { return false } })()
+
+  async function submit(e) {
+    e.preventDefault()
+    if (!current) return setError('Enter your current password.')
+    const err = validateNewPassword(next, confirm)
+    if (err) return setError(err)
+    if (next === current) return setError('New password must be different from the current one.')
+    setBusy(true); setError('')
+    try {
+      await changePassword(current, next)
+      setCurrent(''); setNext(''); setConfirm('')
+      toast('success', 'Password changed')
+    } catch (ex) {
+      setError(ex.message)
+    }
+    setBusy(false)
+  }
+
+  return (
+    <div className="space-y-5">
+      <form onSubmit={submit}>
+        <Card title="Change password" Icon={KeyRound}
+          sub={profile.password_updated_at ? `Last changed ${fmtDate(profile.password_updated_at)}` : 'Choose a strong password you don’t use elsewhere'}
+          footer={<SaveButton type="submit" busy={busy} disabled={!current || !next || !confirm}>Update password</SaveButton>}>
+          <div className="max-w-md space-y-4">
+            <PasswordInput label="Current password" value={current} autoComplete="current-password"
+              onChange={v => { setCurrent(v); setError('') }} show={showCur} onToggleShow={() => setShowCur(s => !s)} />
+            <NewPasswordFields value={next} confirm={confirm}
+              onChange={v => { setNext(v); setError('') }} onConfirm={v => { setConfirm(v); setError('') }} />
+            <ErrorNote>{error}</ErrorNote>
+          </div>
+        </Card>
+      </form>
+
+      <Card title="Sign-in activity" sub="Your account and this device" Icon={Monitor}>
+        <div className="grid sm:grid-cols-3 gap-3">
+          {[
+            { label: 'Last sign-in',    value: profile.last_login ? fmtDateTime(profile.last_login) : '—', Icon: CalendarClock },
+            { label: 'Account created', value: profile.created_at ? fmtDate(profile.created_at) : '—',     Icon: Sparkles },
+            { label: 'This device',     value: remembered ? 'Kept signed in' : 'Until tab closes',          Icon: Monitor },
+          ].map(s => (
+            <div key={s.label} className="rounded-xl bg-gray-50 px-4 py-3">
+              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5"><s.Icon size={12} /> {s.label}</p>
+              <p className="text-sm font-bold text-gray-800 mt-1">{s.value}</p>
+            </div>
+          ))}
+        </div>
+        <button onClick={async () => { await signOut(); navigate('/login', { replace: true }) }}
+          className="mt-4 flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-red-500 border border-red-200 hover:bg-red-50 transition-colors">
+          <LogOut size={15} /> Sign out of this device
+        </button>
+      </Card>
+    </div>
+  )
+}
+
+// ── Preferences ──────────────────────────────────────────────────────────────
+function PreferencesTab({ toast }) {
+  const { profile, updateMe, canAccessPayroll } = useAuth()
+  const prefs = profile.preferences ?? {}
+  const [busyKey, setBusyKey] = useState(null)
+
+  async function setPref(key, value, label) {
+    if ((prefs[key] ?? null) === value) return
+    setBusyKey(key)
+    try {
+      await updateMe({ preferences: { ...prefs, [key]: value } })
+      toast('success', label)
+    } catch (err) {
+      toast('error', err.message)
+    }
+    setBusyKey(null)
+  }
+
+  const landing = prefs.landing ?? '/dashboard'
+  const idle    = Number(prefs.idle_timeout) || 0
+
+  return (
+    <div className="space-y-5">
+      <Card title="Start page" sub="Where you land after signing in" Icon={LayoutDashboard}>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+          {LANDING.filter(l => !l.payroll || canAccessPayroll).map(l => {
+            const on = landing === l.path
+            return (
+              <button key={l.path} disabled={busyKey === 'landing'} onClick={() => setPref('landing', l.path, `Start page set to ${l.label}`)}
+                className={`flex flex-col items-center gap-2 py-4 rounded-xl border text-xs font-semibold transition-all disabled:opacity-60
+                  ${on ? 'bg-[#1e3a8a] text-white border-transparent shadow-sm shadow-[#1e3a8a]/30' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+                <l.Icon size={18} /> {l.label}
+              </button>
             )
           })}
         </div>
+      </Card>
+
+      <Card title="Auto sign-out" sub="Sign out automatically after a period of inactivity — useful on shared computers" Icon={Timer}>
+        <div className="inline-grid grid-cols-4 gap-1 p-1 bg-gray-50 rounded-xl border border-gray-100">
+          {IDLE.map(o => (
+            <button key={o.value} disabled={busyKey === 'idle_timeout'}
+              onClick={() => setPref('idle_timeout', o.value, o.value ? `Auto sign-out after ${o.label}` : 'Auto sign-out turned off')}
+              className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all disabled:opacity-60
+                ${idle === o.value ? 'bg-white text-[#1e3a8a] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+              {o.label}
+            </button>
+          ))}
+        </div>
+        <p className="text-[11px] text-gray-400 mt-3">
+          {idle ? `You'll be signed out after ${idle} minutes without mouse or keyboard activity.` : 'You stay signed in until you sign out.'}
+        </p>
+      </Card>
+    </div>
+  )
+}
+
+// ── Company (Admin) ──────────────────────────────────────────────────────────
+function CompanyTab({ toast }) {
+  const { company, saveCompany } = useCompany()
+  const [form, setForm]   = useState(company)
+  const [busy, setBusy]   = useState(false)
+  const [error, setError] = useState('')
+  useEffect(() => { setForm(company) }, [company])
+
+  const set   = patch => { setForm(f => ({ ...f, ...patch })); setError('') }
+  const dirty = Object.keys(COMPANY_DEFAULTS).some(k => String(form[k] ?? '') !== String(company[k] ?? ''))
+
+  async function submit(e) {
+    e.preventDefault()
+    const days = Number(form.payroll_days)
+    if (!form.name.trim())                 return setError('Company name is required.')
+    if (!form.shift_start || !form.shift_end) return setError('Set both work-day start and end times.')
+    if (form.shift_end <= form.shift_start) return setError('Work day must end after it starts.')
+    if (!(days >= 20 && days <= 31))       return setError('Payroll days per month must be between 20 and 31.')
+    setBusy(true)
+    try {
+      await saveCompany({ name: form.name.trim(), tagline: form.tagline.trim(), shift_start: form.shift_start, shift_end: form.shift_end, payroll_days: days })
+      toast('success', 'Company settings saved')
+    } catch (err) {
+      setError(err.message)
+    }
+    setBusy(false)
+  }
+
+  return (
+    <form onSubmit={submit} className="space-y-5">
+      <Card title="Branding" sub="Shown in the sidebar and on printed payslips" Icon={Building2}>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <Field label="Company name"><input value={form.name} onChange={e => set({ name: e.target.value })} className={INPUT_CLS} maxLength={40} /></Field>
+          <Field label="Tagline"><input value={form.tagline} onChange={e => set({ tagline: e.target.value })} className={INPUT_CLS} maxLength={40} /></Field>
+        </div>
+        <div className="mt-4 inline-flex items-center gap-3 px-4 py-3 rounded-xl" style={{ background: '#0f172a' }}>
+          <span className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #6366f1, #3b82f6)' }}>
+            <Sparkles size={14} className="text-white" />
+          </span>
+          <span className="leading-tight">
+            <span className="block text-white font-bold text-sm">{form.name || 'Company'}</span>
+            <span className="block text-slate-500 text-[10px]">{form.tagline}</span>
+          </span>
+          <span className="text-[10px] text-slate-500 ml-3">Sidebar preview</span>
+        </div>
+      </Card>
+
+      <Card title="Work hours & payroll" sub="Used for late detection in attendance and absence deductions in payroll" Icon={Clock}
+        footer={<SaveButton type="submit" busy={busy} disabled={!dirty} />}>
+        <div className="grid sm:grid-cols-3 gap-4">
+          <Field label="Work day starts" hint="Check-ins after this are flagged late">
+            <input type="time" value={form.shift_start} onChange={e => set({ shift_start: e.target.value })} className={INPUT_CLS} />
+          </Field>
+          <Field label="Work day ends">
+            <input type="time" value={form.shift_end} onChange={e => set({ shift_end: e.target.value })} className={INPUT_CLS} />
+          </Field>
+          <Field label="Payroll days / month" hint="Daily rate = base salary ÷ this">
+            <input type="number" min={20} max={31} value={form.payroll_days} onChange={e => set({ payroll_days: e.target.value })} className={INPUT_CLS} />
+          </Field>
+        </div>
+        <div className="mt-4"><ErrorNote>{error}</ErrorNote></div>
+      </Card>
+    </form>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
+export default function Settings() {
+  const { profile, displayName, avatarUrl, isAdmin } = useAuth()
+  const [params, setParams] = useSearchParams()
+  const [toast, showToast, dismissToast] = useToast()
+
+  const tabs   = TABS.filter(t => !t.admin || isAdmin)
+  const active = tabs.find(t => t.key === params.get('tab'))?.key ?? 'profile'
+  const go     = key => setParams({ tab: key }, { replace: true })
+
+  if (!profile) return null
+
+  return (
+    <div className="space-y-5 pb-10">
+      <div>
+        <h2 className="text-2xl font-extrabold text-gray-900 tracking-tight">Settings</h2>
+        <p className="text-sm text-gray-400 mt-1">Manage your account, security and preferences</p>
       </div>
 
-      {/* Modals */}
-      {modal && (
-        <AccessModal
-          mode={modal.mode}
-          initial={modal.initial}
-          employees={employees}
-          onClose={() => setModal(null)}
-          onSave={handleSave}
-          loading={saving}
-        />
-      )}
+      {/* Profile banner */}
+      <div className="rounded-2xl p-5 sm:p-6 text-white shadow-lg relative overflow-hidden bg-gradient-to-br from-[#1e3a8a] via-[#1e3a8a] to-indigo-900">
+        <div className="absolute -top-16 -right-10 w-56 h-56 bg-indigo-400/20 rounded-full blur-3xl pointer-events-none" />
+        <div className="relative flex flex-col sm:flex-row sm:items-center gap-5">
+          <button onClick={() => go('profile')} className="relative self-start group" title="Change photo">
+            <Avatar id={profile.id} name={displayName} src={avatarUrl} size="w-20 h-20 text-xl" rounded="rounded-2xl" />
+            <span className="absolute -bottom-1.5 -right-1.5 w-8 h-8 rounded-xl bg-white text-[#1e3a8a] shadow-lg flex items-center justify-center group-hover:scale-105 transition-transform">
+              <Camera size={15} />
+            </span>
+          </button>
+          <div className="min-w-0 flex-1">
+            <p className="text-xl font-extrabold tracking-tight truncate">{displayName}</p>
+            <p className="text-sm text-indigo-200 truncate">{profile.username}</p>
+            <div className="flex flex-wrap items-center gap-2 mt-2.5">
+              <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-white/15">{profile.role ?? 'No role'}</span>
+              {profile.created_at && <span className="text-xs text-indigo-200">Member since {fmtDate(profile.created_at)}</span>}
+            </div>
+          </div>
+          <div className="flex sm:flex-col gap-5 sm:gap-2 sm:text-right">
+            <div>
+              <p className="text-[10px] text-indigo-200 uppercase tracking-wider">Last sign-in</p>
+              <p className="text-sm font-bold">{profile.last_login ? fmtDateTime(profile.last_login) : '—'}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-indigo-200 uppercase tracking-wider">Password</p>
+              <p className="text-sm font-bold">{profile.password_updated_at ? `Changed ${fmtDate(profile.password_updated_at)}` : '—'}</p>
+            </div>
+          </div>
+        </div>
+      </div>
 
-      <RevokeModal
-        user={revokeTarget}
-        loading={revoking}
-        onConfirm={handleRevoke}
-        onCancel={() => setRevokeTarget(null)}
-      />
+      <div className="grid lg:grid-cols-[260px_1fr] gap-5 items-start">
+        {/* Section nav */}
+        <nav className="bg-white rounded-2xl border border-gray-100 shadow-sm p-1.5 flex lg:flex-col gap-1 overflow-x-auto lg:sticky lg:top-20">
+          {tabs.map(t => {
+            const on = active === t.key
+            return (
+              <button key={t.key} onClick={() => go(t.key)}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-left whitespace-nowrap transition-colors shrink-0
+                  ${on ? 'bg-[#1e3a8a] text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50'}`}>
+                <t.Icon size={17} className={on ? '' : 'text-gray-400'} />
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold">{t.label}</span>
+                  <span className={`hidden lg:block text-[11px] truncate ${on ? 'text-indigo-200' : 'text-gray-400'}`}>{t.desc}</span>
+                </span>
+              </button>
+            )
+          })}
+          {isAdmin && (
+            <Link to="/users"
+              className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-gray-600 hover:bg-gray-50 whitespace-nowrap shrink-0 lg:border-t lg:border-gray-100 lg:mt-1 lg:pt-3">
+              <UsersRound size={17} className="text-gray-400" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold">Users</span>
+                <span className="hidden lg:block text-[11px] text-gray-400">Accounts, roles & passwords</span>
+              </span>
+              <ChevronRight size={15} className="text-gray-300 hidden lg:block" />
+            </Link>
+          )}
+        </nav>
+
+        <div className="min-w-0">
+          {active === 'profile'     && <ProfileTab     key={profile.id} toast={showToast} />}
+          {active === 'security'    && <SecurityTab    toast={showToast} />}
+          {active === 'preferences' && <PreferencesTab toast={showToast} />}
+          {active === 'company'     && <CompanyTab     toast={showToast} />}
+        </div>
+      </div>
 
       <Toast toast={toast} onDismiss={dismissToast} />
     </div>

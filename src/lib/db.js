@@ -6,7 +6,8 @@
  *   employees          – staff records (denormalises departments.name)
  *   departments        – org units
  *   attendance         – daily check-in/out records
- *   users              – system-role mappings (docId = username/email)
+ *   users              – login accounts: role, status, password hash, avatar (docId = email)
+ *   settings           – company-wide settings (doc: company)
  *   employee_salary_config – base salary per employee
  *   payroll_records    – monthly pay runs (denormalises employee_salary_config)
  */
@@ -15,6 +16,7 @@ import {
   collection, doc, getDocs, getDoc, addDoc, updateDoc, deleteDoc,
   setDoc, query, where, orderBy, writeBatch,
 } from 'firebase/firestore'
+import { hashPassword } from './password'
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -165,46 +167,99 @@ export async function upsertAttendance(employeeId, date, data) {
   return addAttendance({ employee_id: employeeId, date, ...data })
 }
 
-// ── SYSTEM USERS (role-based access) ─────────────────────────────────────────
-// docId = username (email).  Stores employees: {first_name, last_name} denormalised.
+// ── SYSTEM USERS (login accounts) ────────────────────────────────────────────
+// docId = lower-cased email. Login is verified against a salted PBKDF2 hash
+// (see lib/password.js); plain passwords are never stored.
+
+const userKey = email => (email ?? '').trim().toLowerCase()
+
+async function employeeShape(employee_id) {
+  if (!employee_id) return null
+  const eSnap = await getDoc(doc(db, 'employees', employee_id))
+  if (!eSnap.exists()) return null
+  const e = eSnap.data()
+  return { first_name: e.first_name, last_name: e.last_name }
+}
 
 export async function getSystemUsers() {
-  const snap = await getDocs(query(collection(db, 'users'), orderBy('role')))
-  return snap.docs.map(toObj)
+  const snap = await getDocs(collection(db, 'users'))
+  return snap.docs.map(toObj).sort((a, b) =>
+    (a.name || a.username || '').localeCompare(b.name || b.username || ''))
 }
 
-export async function addSystemUser({ username, role, employee_id }) {
-  let employees = null
-  if (employee_id) {
-    const eSnap = await getDoc(doc(db, 'employees', employee_id))
-    if (eSnap.exists()) {
-      const e = eSnap.data()
-      employees = { first_name: e.first_name, last_name: e.last_name }
-    }
+export async function getSystemUser(id) {
+  if (!id) return null
+  const snap = await getDoc(doc(db, 'users', id))
+  return snap.exists() ? toObj(snap) : null
+}
+
+/** Case-insensitive lookup by email (older docs may not use the lower-cased id). */
+export async function findSystemUserByEmail(email) {
+  const key = userKey(email)
+  const direct = await getSystemUser(key)
+  if (direct) return direct
+  const all = await getSystemUsers()
+  return all.find(u => userKey(u.username) === key) ?? null
+}
+
+export async function createSystemUser({ email, name, role, password, employee_id = null, status = 'active' }) {
+  const id = userKey(email)
+  if (await findSystemUserByEmail(id)) throw new Error('A user with this email already exists.')
+  const { hash, salt } = await hashPassword(password)
+  const now = new Date().toISOString()
+  const payload = {
+    username: id, name: (name ?? '').trim(), role, status,
+    employee_id: employee_id || null, employees: await employeeShape(employee_id),
+    password_hash: hash, password_salt: salt, password_updated_at: now,
+    avatar_url: null, preferences: {}, created_at: now, updated_at: now, last_login: null,
   }
-  const payload = { username, role, employee_id: employee_id ?? null, employees }
-  await setDoc(doc(db, 'users', username), payload)
-  return { id: username, ...payload }
+  await setDoc(doc(db, 'users', id), payload)
+  return { id, ...payload }
 }
 
-export async function updateSystemUser(username, { role, employee_id }) {
-  let employees = null
-  if (employee_id) {
-    const eSnap = await getDoc(doc(db, 'employees', employee_id))
-    if (eSnap.exists()) {
-      const e = eSnap.data()
-      employees = { first_name: e.first_name, last_name: e.last_name }
-    }
-  }
-  await updateDoc(doc(db, 'users', username), {
-    role,
-    employee_id: employee_id ?? null,
-    employees,
-  })
+export async function updateSystemUser(id, data) {
+  const updates = { ...data, updated_at: new Date().toISOString() }
+  if ('employee_id' in data) updates.employees = await employeeShape(data.employee_id)
+  await updateDoc(doc(db, 'users', id), updates)
+  return updates
 }
 
-export async function deleteSystemUser(username) {
-  await deleteDoc(doc(db, 'users', username))
+export async function setUserPassword(id, password) {
+  const { hash, salt } = await hashPassword(password)
+  const now = new Date().toISOString()
+  const patch = { password_hash: hash, password_salt: salt, password_updated_at: now, updated_at: now }
+  await updateDoc(doc(db, 'users', id), patch)
+  return patch
+}
+
+export async function deleteSystemUser(id) {
+  await deleteDoc(doc(db, 'users', id))
+}
+
+export async function batchUpdateSystemUsers(ids, data) {
+  const patch = { ...data, updated_at: new Date().toISOString() }
+  const batch = writeBatch(db)
+  ids.forEach(id => batch.update(doc(db, 'users', id), patch))
+  await batch.commit()
+  return patch
+}
+
+export async function batchDeleteSystemUsers(ids) {
+  const batch = writeBatch(db)
+  ids.forEach(id => batch.delete(doc(db, 'users', id)))
+  await batch.commit()
+}
+
+// ── COMPANY SETTINGS ──────────────────────────────────────────────────────────
+// Single doc: settings/company
+
+export async function getCompanySettings() {
+  const snap = await getDoc(doc(db, 'settings', 'company'))
+  return snap.exists() ? snap.data() : null
+}
+
+export async function saveCompanySettings(data) {
+  await setDoc(doc(db, 'settings', 'company'), { ...data, updated_at: new Date().toISOString() }, { merge: true })
 }
 
 // ── SALARY CONFIG ─────────────────────────────────────────────────────────────

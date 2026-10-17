@@ -12,6 +12,7 @@ import {
   StickyNote, CalendarCheck, Lock, Wallet, Loader2,
 } from 'lucide-react'
 import SalaryModal from './SalaryModal'
+import { useCompany } from '../../context/CompanyContext'
 import {
   useToast, useArmed, useSelection, indexById, personOf, recEmpId, fullName,
   num, grossOf, deductOf, netOf, sumBy, computeNet, statusPatch,
@@ -21,7 +22,6 @@ import {
   ListFooter, Modal, ModalHeader, MoneyInput, ErrorNote, PrimaryButton, INPUT_CLS,
 } from './shared'
 
-const DAYS_PER_MONTH = 30
 const ATT_KEYS = [
   ['present',  'Present',  'text-emerald-600'],
   ['late',     'Late',     'text-amber-600'],
@@ -42,6 +42,8 @@ const round2 = n => Math.round(n * 100) / 100
 
 // ── Record modal (create custom draft / edit draft) ───────────────────────────
 function RecordModal({ row, monthLabel, att, onClose, onSave, onStatus, onDelete }) {
+  const { company } = useCompany()
+  const daysPerMonth = Number(company.payroll_days) || 30
   const rec    = row.rec
   const locked = rec && rec.status !== 'Unpaid'
   const cfgBase = num(row.cfg?.basic_salary)
@@ -66,7 +68,7 @@ function RecordModal({ row, monthLabel, att, onClose, onSave, onStatus, onDelete
     tax:          num(form.tax),
   }
   const net        = computeNet(fields)
-  const dailyRate  = fields.basic_salary / DAYS_PER_MONTH
+  const dailyRate  = fields.basic_salary / daysPerMonth
   const missedDays = (att?.absent ?? 0) + (att?.half_day ?? 0) / 2
   const suggested  = round2(missedDays * dailyRate)
   const baseStale  = row.cfg && fields.basic_salary !== cfgBase

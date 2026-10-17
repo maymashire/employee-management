@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import * as db from '../../lib/db'
+import { useCompany } from '../../context/CompanyContext'
 import { AlertCircle, CheckCircle2, Loader2, Users } from 'lucide-react'
-
-const SHIFT_START = 9  // 09:00
 
 function localDateStr(d) {
   const pad = n => String(n).padStart(2, '0')
@@ -30,6 +29,9 @@ const initials = emp =>
   `${emp?.first_name?.[0] ?? ''}${emp?.last_name?.[0] ?? ''}`.toUpperCase() || '?'
 
 export default function CheckInOut() {
+  const { company } = useCompany()
+  const shiftStart = company.shift_start || '09:00'
+  const [shH, shM] = shiftStart.split(':').map(Number)
   const [employees,     setEmployees]     = useState([])
   const [selected,      setSelected]      = useState(null)   // employee object
   const [attendance,    setAttendance]    = useState(null)
@@ -46,7 +48,7 @@ export default function CheckInOut() {
 
   const TODAY   = localDateStr(now)
   const nowMins = now.getHours() * 60 + now.getMinutes()
-  const isLate  = nowMins > SHIFT_START * 60
+  const isLate  = nowMins > shH * 60 + shM
 
   const clockStr = now.toLocaleTimeString('en-US', {
     hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
@@ -162,7 +164,7 @@ export default function CheckInOut() {
             {clockStr}
           </h1>
           <div className="flex items-center gap-6 text-xs text-slate-400 pt-2 border-t border-slate-800">
-            <span>☕ Shift starts 09:00</span>
+            <span>☕ Shift starts {fmtTime(shiftStart)}</span>
             <span>⏱ Ends 17:00</span>
           </div>
         </div>
@@ -291,7 +293,7 @@ export default function CheckInOut() {
                 <p className="text-xs text-gray-400">Click to record your arrival</p>
                 {isLate && (
                   <p className="text-xs text-amber-500 font-medium flex items-center justify-center gap-1">
-                    <AlertCircle size={12} /> After 9:00 AM — will mark Late
+                    <AlertCircle size={12} /> After {fmtTime(shiftStart)} — will mark Late
                   </p>
                 )}
               </div>

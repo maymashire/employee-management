@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
+import { CompanyProvider } from './context/CompanyContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import Layout from './components/layout/Layout'
 import PayrollLayout from './components/layout/PayrollLayout'
@@ -9,6 +10,7 @@ import Dashboard       from './pages/Dashboard'
 import Employees       from './pages/Employees'
 import Departments     from './pages/Departments'
 import Settings        from './pages/Settings'
+import Users           from './pages/Users'
 
 import DailyAttendance     from './pages/attendance/DailyAttendance'
 import CheckInOut          from './pages/attendance/CheckInOut'
@@ -69,9 +71,12 @@ function AppRoutes() {
           <Route path="pay-status"    element={<PayStatus />} />
         </Route>
 
-        {/* Settings — Admin only (not Finance) */}
-        <Route path="settings" element={
-          <ProtectedRoute adminOnly="strict"><Settings /></ProtectedRoute>
+        {/* Settings — every signed-in user (own profile); Company tab is Admin-only inside */}
+        <Route path="settings"                element={<Settings />} />
+
+        {/* Users — Admin only */}
+        <Route path="users" element={
+          <ProtectedRoute adminOnly="strict"><Users /></ProtectedRoute>
         } />
       </Route>
 
@@ -85,7 +90,9 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <AppRoutes />
+        <CompanyProvider>
+          <AppRoutes />
+        </CompanyProvider>
       </AuthProvider>
     </BrowserRouter>
   )

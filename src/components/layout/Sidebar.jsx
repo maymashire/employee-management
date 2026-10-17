@@ -4,9 +4,11 @@ import {
   LayoutDashboard, Users, Building2,
   Clock, CalendarDays, ScanLine, Calendar, BarChart3,
   Wallet, FileSpreadsheet, Calculator, FileText, History,
-  Settings, LogOut, ChevronDown, Activity, Sparkles,
+  Settings, LogOut, ChevronDown, Activity, Sparkles, UsersRound,
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
+import { useCompany } from '../../context/CompanyContext'
+import { Avatar } from '../ui'
 
 const MAIN_NAV = [
   { label: 'Dashboard',   path: '/dashboard',   icon: LayoutDashboard },
@@ -105,7 +107,8 @@ const ROLE_COLORS = {
 }
 
 export default function Sidebar({ open, onClose }) {
-  const { isAdmin, canAccessPayroll, signOut, displayName, roleLabel, initials } = useAuth()
+  const { profile, isAdmin, canAccessPayroll, signOut, displayName, roleLabel, avatarUrl } = useAuth()
+  const { company } = useCompany()
   const navigate = useNavigate()
 
   async function handleSignOut() {
@@ -144,8 +147,8 @@ export default function Sidebar({ open, onClose }) {
             <Sparkles size={14} className="text-white" strokeWidth={2} />
           </div>
           <div className="leading-tight">
-            <p className="text-white font-bold text-sm tracking-tight">WorkForce</p>
-            <p className="text-slate-500 text-[10px]">Employee Management</p>
+            <p className="text-white font-bold text-sm tracking-tight truncate max-w-[160px]">{company.name}</p>
+            <p className="text-slate-500 text-[10px] truncate max-w-[160px]">{company.tagline}</p>
           </div>
         </div>
 
@@ -199,7 +202,8 @@ export default function Sidebar({ open, onClose }) {
         <div className="shrink-0" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
 
           <div className="px-3 pt-2 pb-2 space-y-0.5">
-            {isAdmin && <NavItem path="/settings" icon={Settings} label="Settings" onNavClick={onClose} />}
+            {isAdmin && <NavItem path="/users" icon={UsersRound} label="Users" onNavClick={onClose} />}
+            <NavItem path="/settings" icon={Settings} label="Settings" onNavClick={onClose} />
             <button
               onClick={handleSignOut}
               className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium
@@ -212,12 +216,10 @@ export default function Sidebar({ open, onClose }) {
 
           {/* User card */}
           <div className="px-3 pb-4 pt-1">
-            <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl"
+            <NavLink to="/settings?tab=profile" onClick={onClose}
+              className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-white/10 transition-colors"
               style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.07)' }}>
-              <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-extrabold text-white"
-                style={{ background: 'linear-gradient(135deg, #6366f1, #3b82f6)' }}>
-                {initials}
-              </div>
+              <Avatar id={profile?.id} name={displayName} src={avatarUrl} size="w-8 h-8 text-xs" rounded="rounded-full" />
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold text-white truncate capitalize leading-tight">
                   {displayName}
@@ -229,7 +231,7 @@ export default function Sidebar({ open, onClose }) {
                   </span>
                 )}
               </div>
-            </div>
+            </NavLink>
           </div>
         </div>
       </aside>
