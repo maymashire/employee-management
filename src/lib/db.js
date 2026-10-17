@@ -13,7 +13,7 @@
 import { db } from './firebase'
 import {
   collection, doc, getDocs, getDoc, addDoc, updateDoc, deleteDoc,
-  setDoc, query, where, orderBy,
+  setDoc, query, where, orderBy, writeBatch,
 } from 'firebase/firestore'
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -128,6 +128,31 @@ export async function addAttendance(data) {
 
 export async function updateAttendance(id, data) {
   await updateDoc(doc(db, 'attendance', id), data)
+}
+
+export async function deleteAttendance(id) {
+  await deleteDoc(doc(db, 'attendance', id))
+}
+
+/**
+ * Set the status of many employees on one date using batched writes.
+ * items: [{ employee_id, id?, status }] — `id` is the existing attendance doc, if any.
+ */
+export async function batchSetAttendanceStatus(date, items) {
+  const created_at = new Date().toISOString()
+  for (let i = 0; i < items.length; i += 450) {
+    const batch = writeBatch(db)
+    items.slice(i, i + 450).forEach(({ employee_id, id, status }) => {
+      if (id) {
+        batch.update(doc(db, 'attendance', id), { status })
+      } else {
+        batch.set(doc(collection(db, 'attendance')), {
+          employee_id, date, status, clock_in: null, clock_out: null, created_at,
+        })
+      }
+    })
+    await batch.commit()
+  }
 }
 
 /** Upsert: update if a record exists for empId+date, otherwise insert. */
