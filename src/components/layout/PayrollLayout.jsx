@@ -16,21 +16,21 @@ export default function PayrollLayout() {
 
       {/* ── Tab bar ─────────────────────────────────────────────────────────── */}
       <div className="overflow-x-auto -mx-3 sm:mx-0 px-3 sm:px-0 pb-0.5">
-        <div className="flex items-center gap-1.5 min-w-max sm:min-w-0 sm:flex-wrap">
+        <div className="flex items-center gap-1 p-1.5 bg-white border border-gray-100 rounded-2xl shadow-sm min-w-max sm:min-w-0 sm:flex-wrap">
           {TABS.map(({ to, label, Icon }) => (
             <NavLink
               key={to}
               to={to}
               className={({ isActive }) =>
-                `flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg text-sm font-medium
+                `flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl text-sm font-semibold
                  whitespace-nowrap transition-all duration-150 select-none
                  ${isActive
-                   ? 'bg-[#1e3a8a] text-white shadow-sm'
-                   : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                   ? 'bg-[#1e3a8a] text-white shadow-sm shadow-[#1e3a8a]/30'
+                   : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
                  }`
               }
             >
-              <Icon size={14} />
+              <Icon size={15} />
               {label}
             </NavLink>
           ))}

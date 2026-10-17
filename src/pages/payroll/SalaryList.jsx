@@ -1,851 +1,530 @@
 /**
- * SalaryList — shows payroll_records joined with employee_salary_config.
- * All financial columns (overtime, bonus, deductions, tax, net_salary) live in
- * payroll_records.  Static info (employee_name, department, basic_salary) lives
- * in employee_salary_config and is fetched via the salary_config_id FK.
+ * SalaryList — base-salary structure for every employee (employee_salary_config),
+ * joined live with the employees directory and their payroll history.
  */
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import * as db from '../../lib/db'
 import {
-  Search, RefreshCw, Plus, Pencil, Trash2, Settings2,
-  X, Loader2, CheckCircle2, AlertCircle,
+  Wallet, UserCheck, UserX, UserMinus, Banknote, Pencil, Plus, Download, RefreshCw,
+  Percent, Trash2, CalendarRange, ArrowUpDown,
 } from 'lucide-react'
+import SalaryModal from './SalaryModal'
+import {
+  useToast, useArmed, useSelection, indexById, personOf, fullName, num, netOf, sumBy,
+  fmt$, fmt$0, fmtK, fmtPeriod, fmtDate, downloadCSV, PAY_STATUS,
+  Toast, HeroCard, RateRing, StatCard, SearchBox, DeptSelect, FilterPills, ToolButton,
+  SkeletonRows, EmptyState, Checkbox, Th, PersonCell, BulkBar, BulkAction, ListFooter,
+  Modal, ModalHeader, MoneyInput, ErrorNote, PrimaryButton,
+} from './shared'
 
-// ── helpers ────────────────────────────────────────────────────────────────────
-const fmt$ = n => `$${Number(n ?? 0).toFixed(2)}`
+const YEAR = String(new Date().getFullYear())
 
-/** net_salary is GENERATED in DB; calculate client-side only for modal preview */
-function previewNet(f) {
+const baseOr = (r, missing) => (r.cfg ? num(r.cfg.basic_salary) : missing)
+const cmp    = (x, y) => (x === y ? 0 : x < y ? -1 : 1)
+
+const SORTS = {
+  name: { label: 'Name A–Z',           fn: (a, b) => a.person.name.localeCompare(b.person.name) },
+  high: { label: 'Salary: high → low', fn: (a, b) => cmp(baseOr(b, -1), baseOr(a, -1)) },
+  low:  { label: 'Salary: low → high', fn: (a, b) => cmp(baseOr(a, Infinity), baseOr(b, Infinity)) },
+  ytd:  { label: 'Paid this year',     fn: (a, b) => b.ytd - a.ytd },
+}
+
+// ── Bulk adjust modal ──────────────────────────────────────────────────────────
+const MODES = [
+  { key: 'pct',   label: 'Raise by %'  },
+  { key: 'add',   label: 'Raise by $'  },
+  { key: 'set',   label: 'Set amount'  },
+]
+
+function BulkSalaryModal({ rows, onClose, onApply }) {
+  const [mode,  setMode]  = useState('pct')
+  const [value, setValue] = useState('')
+  const [busy,  setBusy]  = useState(false)
+  const [error, setError] = useState('')
+
+  const v = num(value)
+  const preview = rows.map(r => {
+    const cur = r.cfg ? num(r.cfg.basic_salary) : null
+    let next = null
+    if (mode === 'set')           next = v
+    else if (cur != null && mode === 'pct') next = cur * (1 + v / 100)
+    else if (cur != null && mode === 'add') next = cur + v
+    return { ...r, cur, next: next == null ? null : Math.round(next * 100) / 100 }
+  })
+  const affected = preview.filter(p => p.next != null && p.next !== p.cur)
+  const skipped  = preview.filter(p => p.next == null).length
+  const delta    = sumBy(affected, p => p.next - (p.cur ?? 0))
+  const invalid  = affected.some(p => p.next <= 0)
+
+  async function submit(e) {
+    e.preventDefault()
+    if (!value || !affected.length) { setError('Enter a value that changes at least one salary.'); return }
+    if (invalid) { setError('Resulting salaries must be greater than zero.'); return }
+    setBusy(true)
+    try { await onApply(affected.map(p => ({ row: p, amount: p.next }))); onClose() }
+    catch (err) { setError(err.message); setBusy(false) }
+  }
+
   return (
-    (Number(f.basic_salary) || 0) +
-    (Number(f.overtime)     || 0) +
-    (Number(f.bonus)        || 0) -
-    (Number(f.deductions)   || 0) -
-    (Number(f.tax)          || 0)
-  )
-}
-
-function initials(name = '') {
-  return name.trim().split(/\s+/).map(w => w[0] ?? '').join('').slice(0, 2).toUpperCase()
-}
-
-function shortId(id = '') {
-  return id.replace(/-/g, '').slice(0, 5)
-}
-
-/** Convert 'YYYY-MM' (month input value) → 'YYYY-MM-01' (DATE for payroll_records) */
-function monthToDate(ym) { return ym ? `${ym}-01` : '' }
-
-/** Format a pay_period date as 'Jun 2026' */
-const fmtPeriod = iso =>
-  iso ? new Date(`${iso}T00:00:00`).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '—'
-
-const STATUS_CLS = {
-  Unpaid:     'bg-gray-100   text-gray-600',
-  Processing: 'bg-amber-100  text-amber-700',
-  Paid:       'bg-emerald-100 text-emerald-700',
-}
-
-const FIELD_CLS =
-  'w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm ' +
-  'focus:outline-none focus:ring-2 focus:ring-[#1e3a8a]/25 focus:border-[#1e3a8a] transition-colors'
-
-const EMPTY_RECORD_FORM = {
-  employee_id: '',        // selected from master employees table
-  pay_period_month: '',
-  basic_salary: '',       // editable only when no salary config exists yet
-  overtime: '', bonus: '', deductions: '', tax: '',
-}
-
-const EMPTY_CONFIG_FORM = {
-  employee_id: '', employee_name: '', department: '', basic_salary: '',
-}
-
-// ── Toast ──────────────────────────────────────────────────────────────────────
-function Toast({ toast, onDismiss }) {
-  useEffect(() => {
-    if (!toast) return
-    const t = setTimeout(onDismiss, 4000)
-    return () => clearTimeout(t)
-  }, [toast, onDismiss])
-  if (!toast) return null
-  const ok = toast.type === 'success'
-  return (
-    <div className={`fixed bottom-4 left-4 right-4 sm:left-auto sm:right-6 sm:bottom-6 sm:max-w-sm z-50 flex items-center gap-3 px-4 py-3 rounded-xl shadow-xl border text-sm font-medium
-      ${ok ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
-      {ok ? <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />
-           : <AlertCircle  size={16} className="text-red-500 shrink-0" />}
-      <span className="flex-1">{toast.message}</span>
-      <button onClick={onDismiss} className="ml-1 opacity-50 hover:opacity-100"><X size={14} /></button>
-    </div>
-  )
-}
-
-// ── Delete confirm ─────────────────────────────────────────────────────────────
-function DeleteModal({ target, onConfirm, onCancel, loading }) {
-  if (!target) return null
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 text-center">
-        <div className="w-14 h-14 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-          <Trash2 size={22} className="text-red-600" />
+    <Modal as="form" onSubmit={submit} onClose={onClose} maxWidth="540px">
+      <ModalHeader title="Adjust salaries" sub={`${rows.length} employee${rows.length !== 1 ? 's' : ''} selected`} onClose={onClose} />
+      <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-5">
+        <div className="grid grid-cols-3 gap-1 p-1 bg-gray-50 rounded-xl border border-gray-100">
+          {MODES.map(m => (
+            <button key={m.key} type="button" onClick={() => { setMode(m.key); setError('') }}
+              className={`py-2 rounded-lg text-xs font-semibold transition-all
+                ${mode === m.key ? 'bg-white text-[#1e3a8a] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+              {m.label}
+            </button>
+          ))}
         </div>
-        <h3 className="text-lg font-bold text-gray-800">Delete Record?</h3>
-        <p className="text-sm text-gray-500 mt-2">This action cannot be undone.</p>
-        <div className="flex gap-3 mt-6">
-          <button onClick={onCancel}
-            className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50">
-            Cancel
-          </button>
-          <button onClick={onConfirm} disabled={loading}
-            className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-semibold disabled:opacity-60">
-            {loading ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-            Delete
-          </button>
+
+        {mode === 'pct' ? (
+          <label className="block">
+            <span className="text-xs font-medium text-gray-500">Percentage change</span>
+            <div className="relative mt-1">
+              <input type="number" step="0.1" value={value} onChange={e => { setValue(e.target.value); setError('') }}
+                placeholder="e.g. 10  (use −5 for a cut)"
+                className="w-full px-3 py-2.5 pr-8 text-sm rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#1e3a8a]/20 focus:border-[#1e3a8a] font-semibold" />
+              <Percent size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            </div>
+          </label>
+        ) : (
+          <MoneyInput
+            label={mode === 'add' ? 'Amount to add per month' : 'New monthly base salary'}
+            value={value} onChange={v2 => { setValue(v2); setError('') }}
+          />
+        )}
+
+        <div className="rounded-xl border border-gray-100 overflow-hidden">
+          <div className="max-h-56 overflow-y-auto divide-y divide-gray-50">
+            {preview.map(p => (
+              <div key={p.key} className="flex items-center justify-between gap-3 px-3.5 py-2.5 text-sm">
+                <span className="font-medium text-gray-700 truncate">{p.person.name}</span>
+                <span className="text-xs tabular-nums whitespace-nowrap">
+                  <span className="text-gray-400">{p.cur != null ? fmt$(p.cur) : 'Not set'}</span>
+                  {p.next != null ? (
+                    <> <span className="text-gray-300 mx-1">→</span>
+                      <b className={p.next > (p.cur ?? 0) ? 'text-emerald-600' : p.next < (p.cur ?? 0) ? 'text-rose-600' : 'text-gray-700'}>{fmt$(p.next)}</b></>
+                  ) : <span className="text-gray-300 ml-2">skipped</span>}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center justify-between px-3.5 py-2.5 bg-gray-50 text-xs">
+            <span className="text-gray-500">{affected.length} will change{skipped ? ` · ${skipped} without salary skipped` : ''}</span>
+            <span className={`font-bold ${delta >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+              {delta >= 0 ? '+' : '−'}{fmt$(Math.abs(delta))} / month
+            </span>
+          </div>
         </div>
+        <ErrorNote>{error}</ErrorNote>
       </div>
-    </div>
+      <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-gray-100 shrink-0">
+        <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-100 transition-colors">Cancel</button>
+        <PrimaryButton type="submit" disabled={busy || !affected.length} busy={busy}>Apply to {affected.length}</PrimaryButton>
+      </div>
+    </Modal>
   )
 }
 
-// ── Payroll Record modal (Add / Edit) ─────────────────────────────────────────
-// Dropdown is sourced from the master `employees` table (active employees only).
-// On submit, the handler auto-creates an employee_salary_config if one doesn't
-// exist yet, then inserts the payroll_records row.
-function RecordModal({ mode, form, employees, configs, onChange, onSubmit, onClose, loading }) {
-  const isEdit = mode === 'edit'
+// ════════════════════════════════════════════════════════════════════════════════
+export default function SalaryList() {
+  const [employees, setEmployees] = useState([])
+  const [configs,   setConfigs]   = useState([])
+  const [records,   setRecords]   = useState([])
+  const [loading,   setLoading]   = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [search,    setSearch]    = useState('')
+  const [dept,      setDept]      = useState('all')
+  const [filter,    setFilter]    = useState('all')
+  const [sort,      setSort]      = useState('name')
+  const [editing,   setEditing]   = useState(null)   // row key
+  const [bulkOpen,  setBulkOpen]  = useState(false)
+  const [bulkBusy,  setBulkBusy]  = useState(false)
+  const [toast, showToast, dismissToast] = useToast()
+  const [armed, fire] = useArmed()
+  const { selected, toggle, toggleAll, clear } = useSelection()
+  const reqId = useRef(0)
 
-  // Real employee record from master table
-  const employee = employees.find(e => e.id === form.employee_id)
+  const fetchData = useCallback(async (soft = false) => {
+    const id = ++reqId.current
+    soft ? setRefreshing(true) : setLoading(true)
+    try {
+      const [emps, cfgs, recs] = await Promise.all([db.getEmployees(), db.getSalaryConfigs(), db.getPayrollRecords()])
+      if (id !== reqId.current) return
+      setEmployees(emps); setConfigs(cfgs); setRecords(recs)
+    } catch (err) {
+      if (id === reqId.current) showToast('error', err.message)
+    }
+    if (id === reqId.current) { setLoading(false); setRefreshing(false) }
+  }, [showToast])
 
-  // Check if a salary config already exists for the chosen employee
-  const existingConfig = configs.find(c => c.employee_id === form.employee_id)
-  const configExists   = !!existingConfig
+  useEffect(() => { fetchData() }, [fetchData])
 
-  // basic_salary for the net preview:
-  // • if config exists  → use its stored value (read-only)
-  // • if config missing → use the user's input field
-  const basicForPreview = configExists
-    ? Number(existingConfig.basic_salary ?? 0)
-    : Number(form.basic_salary)       || 0
+  // ── Derived ──
+  const empMap = useMemo(() => indexById(employees), [employees])
 
-  const net = previewNet({ ...form, basic_salary: basicForPreview })
+  const recsByEmp = useMemo(() => {
+    const m = {}
+    records.forEach(r => {
+      const id = r.employee_id ?? r.employee_salary_config?.employee_id
+      if (id) (m[id] ??= []).push(r)
+    })
+    Object.values(m).forEach(list => list.sort((a, b) => (b.pay_period ?? '').localeCompare(a.pay_period ?? '')))
+    return m
+  }, [records])
 
-  const NUM_FIELDS = [
-    { key: 'overtime',   label: 'Overtime',   cls: 'text-green-600'  },
-    { key: 'bonus',      label: 'Bonus',      cls: 'text-purple-600' },
-    { key: 'deductions', label: 'Deductions', cls: 'text-red-600'    },
-    { key: 'tax',        label: 'Tax',        cls: 'text-orange-500' },
+  const rows = useMemo(() => {
+    const cfgByEmp = {}
+    configs.forEach(c => { if (c.employee_id && !cfgByEmp[c.employee_id]) cfgByEmp[c.employee_id] = c })
+    const build = (key, empId, cfg, src) => {
+      const person = personOf(src, empMap)
+      const recs   = recsByEmp[empId] ?? []
+      const emp    = empMap[empId]
+      return {
+        key, empId, cfg, recs, person,
+        inactive: !emp || emp.status !== 'active',
+        ytd:  sumBy(recs.filter(r => r.status === 'Paid' && r.pay_period?.startsWith(YEAR)), netOf),
+        last: recs[0] ?? null,
+      }
+    }
+    const list = employees
+      .filter(e => e.status === 'active')
+      .map(e => build(e.id, e.id, cfgByEmp[e.id] ?? null, { employee_id: e.id }))
+    configs
+      .filter(c => !c.employee_id || empMap[c.employee_id]?.status !== 'active')
+      .forEach(c => list.push(build(`cfg-${c.id}`, c.employee_id, c, c)))
+    return list
+  }, [employees, configs, empMap, recsByEmp])
+
+  const departments = useMemo(
+    () => [...new Set(rows.map(r => r.person.dept).filter(Boolean))].sort(),
+    [rows],
+  )
+
+  const scoped = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return rows.filter(r =>
+      (dept === 'all' || r.person.dept === dept) &&
+      (!q || r.person.name.toLowerCase().includes(q) || r.person.job.toLowerCase().includes(q) || r.person.dept.toLowerCase().includes(q)),
+    )
+  }, [rows, search, dept])
+
+  const matches = (r, f) =>
+    f === 'all' ? true : f === 'set' ? !!r.cfg && !r.inactive : f === 'notset' ? !r.cfg : r.inactive
+
+  const visible = useMemo(
+    () => scoped.filter(r => matches(r, filter)).sort(SORTS[sort].fn),
+    [scoped, filter, sort],
+  )
+
+  const count = (list, f) => list.filter(r => matches(r, f)).length
+
+  const stats = useMemo(() => {
+    const active     = rows.filter(r => !r.inactive)
+    const configured = active.filter(r => r.cfg)
+    const total      = sumBy(configured, r => num(r.cfg.basic_salary))
+    return {
+      active: active.length,
+      configured: configured.length,
+      notSet: active.length - configured.length,
+      inactive: rows.length - active.length,
+      total,
+      avg: configured.length ? total / configured.length : 0,
+      coverage: active.length ? Math.round((configured.length / active.length) * 100) : 0,
+      ytd: sumBy(rows, r => r.ytd),
+      ytdCount: records.filter(r => r.status === 'Paid' && r.pay_period?.startsWith(YEAR)).length,
+    }
+  }, [rows, records])
+
+  const selectedRows  = rows.filter(r => selected.has(r.key))
+  const allVisibleSel = visible.length > 0 && visible.every(r => selected.has(r.key))
+  const editingRow    = editing ? rows.find(r => r.key === editing) : null
+
+  // ── Mutations ──
+  function configPayload(row, amount) {
+    const emp = empMap[row.empId]
+    return {
+      ...(row.cfg ? { id: row.cfg.id } : {}),
+      employee_id:   row.empId ?? row.cfg?.employee_id ?? null,
+      employee_name: emp ? fullName(emp) : row.person.name,
+      department:    emp?.departments?.name ?? row.person.dept ?? '',
+      basic_salary:  amount,
+    }
+  }
+
+  function mergeConfigs(saved) {
+    setConfigs(list => {
+      const byId = indexById(list)
+      saved.forEach(s => { byId[s.id] = { ...(byId[s.id] ?? {}), ...s } })
+      return Object.values(byId)
+    })
+  }
+
+  async function saveOne(row, amount) {
+    const saved = await db.batchSaveSalaryConfigs([configPayload(row, amount)])
+    mergeConfigs(saved)
+    showToast('success', `Salary ${row.cfg ? 'updated' : 'set'} for ${row.person.name.split(' ')[0]} — ${fmt$(amount)}`)
+  }
+
+  async function removeConfigs(targets) {
+    await Promise.all(targets.map(r => db.deleteSalaryConfig(r.cfg.id)))
+    const ids = new Set(targets.map(r => r.cfg.id))
+    setConfigs(list => list.filter(c => !ids.has(c.id)))
+  }
+
+  async function applyBulk(items) {
+    setBulkBusy(true)
+    try {
+      const saved = await db.batchSaveSalaryConfigs(items.map(({ row, amount }) => configPayload(row, amount)))
+      mergeConfigs(saved)
+      clear()
+      showToast('success', `Updated ${items.length} salar${items.length !== 1 ? 'ies' : 'y'}`)
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
+  async function bulkRemove() {
+    const targets = selectedRows.filter(r => r.cfg)
+    if (!targets.length || !fire('remove')) return
+    setBulkBusy(true)
+    try {
+      await removeConfigs(targets)
+      clear()
+      showToast('success', `Removed ${targets.length} salary record${targets.length !== 1 ? 's' : ''}`)
+    } catch (err) {
+      showToast('error', err.message)
+    }
+    setBulkBusy(false)
+  }
+
+  function exportCSV() {
+    downloadCSV(visible.map(r => ({
+      Employee:     r.person.name,
+      Department:   r.person.dept,
+      'Job Title':  r.person.job,
+      'Base Salary': r.cfg ? num(r.cfg.basic_salary) : '',
+      Annual:       r.cfg ? num(r.cfg.basic_salary) * 12 : '',
+      'Last Period': r.last ? fmtPeriod(r.last.pay_period) : '',
+      'Last Net':   r.last ? netOf(r.last) : '',
+      [`Paid ${YEAR}`]: r.ytd,
+      Status:       r.inactive ? 'Inactive' : r.cfg ? 'Salary set' : 'Not set',
+    })), `salary-list-${new Date().toISOString().slice(0, 10)}.csv`)
+  }
+
+  const FILTERS = [
+    { key: 'all',    label: 'All',               dot: 'bg-gray-400',    count: scoped.length },
+    { key: 'set',    label: 'Salary set',        dot: 'bg-emerald-500', count: count(scoped, 'set') },
+    { key: 'notset', label: 'Not set',           dot: 'bg-amber-500',   count: count(scoped, 'notset') },
+    { key: 'former', label: 'Inactive / former', dot: 'bg-gray-300',    count: count(scoped, 'former') },
   ]
 
+  const toggleFilter = f => setFilter(cur => (cur === f ? 'all' : f))
+
+  // ── Row bits ──
+  const baseCell = r => r.cfg ? (
+    <span className="font-bold text-gray-900 tabular-nums">{fmt$(r.cfg.basic_salary)}</span>
+  ) : (
+    <button onClick={() => setEditing(r.key)}
+      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-amber-50 text-amber-700 ring-1 ring-amber-200 hover:bg-amber-100 transition-colors">
+      <Plus size={12} /> Set salary
+    </button>
+  )
+
+  const lastCell = r => r.last ? (
+    <div className="leading-tight">
+      <p className="text-sm font-semibold text-gray-800 tabular-nums">{fmt$(netOf(r.last))}</p>
+      <p className="text-[11px] text-gray-400 flex items-center gap-1">
+        <span className={`w-1.5 h-1.5 rounded-full ${PAY_STATUS[r.last.status]?.dot ?? 'bg-gray-300'}`} />
+        {fmtPeriod(r.last.pay_period)}
+      </p>
+    </div>
+  ) : <span className="text-xs text-gray-300">No payroll yet</span>
+
+  const inactiveTag = r => r.inactive && !r.person.former ? (
+    <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-gray-100 text-gray-500 capitalize">
+      {empMap[r.empId]?.status ?? 'inactive'}
+    </span>
+  ) : null
+
+  // ── Render ──
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
-        <div className="flex items-start justify-between px-6 py-5 border-b border-gray-100">
-          <div>
-            <h2 className="text-lg font-bold text-gray-900">{isEdit ? 'Edit' : 'Add'} Salary Record</h2>
-            <p className="text-xs text-gray-400 mt-0.5">
-              {isEdit ? 'Update financial fields in payroll_records.' : 'Select a real employee from the master directory.'}
-            </p>
+    <div className="space-y-5 pb-24">
+
+      {/* Header */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-extrabold text-gray-900 tracking-tight">Salary structure</h2>
+          <p className="text-sm text-gray-400 mt-1">
+            Base monthly salary for each employee · used when generating payroll
+          </p>
+        </div>
+      </div>
+
+      {/* Overview */}
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
+        <HeroCard
+          ring={<RateRing pct={stats.coverage} label="set" />}
+          eyebrow="Monthly base payroll"
+          headline={fmt$(stats.total)}
+          sub={`${stats.configured} of ${stats.active} active employees have a salary`}
+          stats={[
+            { label: 'Annual',  value: fmtK(stats.total * 12), Icon: CalendarRange },
+            { label: 'Average', value: fmt$0(stats.avg),        Icon: Wallet },
+          ]}
+        />
+        <StatCard label="Salary set" value={stats.configured} pct={stats.coverage}
+          Icon={UserCheck} iconCls="bg-emerald-50 text-emerald-500" barCls="bg-emerald-500"
+          active={filter === 'set'} onClick={() => toggleFilter('set')} />
+        <StatCard label="Not set" value={stats.notSet} pct={stats.active ? Math.round((stats.notSet / stats.active) * 100) : 0}
+          Icon={UserX} iconCls="bg-amber-50 text-amber-500" barCls="bg-amber-500"
+          active={filter === 'notset'} onClick={() => toggleFilter('notset')} />
+        <StatCard label="Inactive / former" value={stats.inactive} sub="with a salary record"
+          Icon={UserMinus} iconCls="bg-gray-100 text-gray-500"
+          active={filter === 'former'} onClick={() => toggleFilter('former')} />
+        <StatCard label={`Paid in ${YEAR}`} value={fmtK(stats.ytd)}
+          sub={`${stats.ytdCount} payslip${stats.ytdCount !== 1 ? 's' : ''} paid`}
+          Icon={Banknote} iconCls="bg-indigo-50 text-indigo-500" />
+      </div>
+
+      {/* List */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="p-4 border-b border-gray-100 space-y-3">
+          <div className="flex flex-col md:flex-row md:items-center gap-2.5">
+            <SearchBox value={search} onChange={setSearch} placeholder="Search employee, job or department…" />
+            <DeptSelect value={dept} onChange={setDept} options={departments} />
+            <div className="relative md:w-48">
+              <ArrowUpDown size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              <select value={sort} onChange={e => setSort(e.target.value)}
+                className="w-full pl-8 pr-3 py-2.5 text-sm rounded-xl border border-gray-200 bg-gray-50 text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#1e3a8a]/20 focus:border-[#1e3a8a]">
+                {Object.entries(SORTS).map(([k, s]) => <option key={k} value={k}>{s.label}</option>)}
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <ToolButton onClick={exportCSV} disabled={!visible.length} title="Export CSV">
+                <Download size={15} /> <span className="hidden sm:inline">Export</span>
+              </ToolButton>
+              <ToolButton onClick={() => fetchData(true)} title="Refresh" className="!px-2.5">
+                <RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} />
+              </ToolButton>
+            </div>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100"><X size={17} /></button>
+          <FilterPills items={FILTERS} value={filter} onChange={setFilter} />
         </div>
 
-        <form onSubmit={onSubmit}>
-          <div className="px-6 py-5 space-y-4">
-
-            {/* ── Employee — from master employees table ── */}
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
-                Employee <span className="text-red-400 normal-case">*</span>
-              </label>
-              <select
-                required
-                disabled={isEdit}
-                value={form.employee_id}
-                onChange={e => onChange({ ...form, employee_id: e.target.value, basic_salary: '' })}
-                className={`${FIELD_CLS} disabled:bg-gray-50 disabled:text-gray-400 cursor-pointer`}
-              >
-                <option value="">Select employee…</option>
-                {employees.map(emp => {
-                  const dept = emp.departments?.name ?? ''
-                  return (
-                    <option key={emp.id} value={emp.id}>
-                      {emp.first_name} {emp.last_name}{dept ? ` — ${dept}` : ''}
-                    </option>
-                  )
-                })}
-              </select>
-
-              {/* Show salary config status after employee is selected */}
-              {form.employee_id && (
-                configExists ? (
-                  <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1">
-                    <CheckCircle2 size={11} />
-                    Salary config found — Basic: <span className="font-semibold">{fmt$(existingConfig.basic_salary)}</span>
-                  </p>
-                ) : (
-                  <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">
-                    <AlertCircle size={11} />
-                    No salary config yet — enter a basic salary below and one will be created automatically.
-                  </p>
-                )
-              )}
+        {loading ? <SkeletonRows /> : visible.length === 0 ? (
+          <EmptyState
+            Icon={Wallet}
+            title={rows.length === 0 ? 'No active employees yet' : 'No employees match these filters'}
+            sub={rows.length === 0 ? 'Add employees first, then set their base salary here.' : null}
+            action={rows.length > 0 && (
+              <button onClick={() => { setSearch(''); setDept('all'); setFilter('all') }}
+                className="text-xs font-semibold text-[#1e3a8a] hover:underline">Clear filters</button>
+            )}
+          />
+        ) : (
+          <>
+            {/* Desktop */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100 bg-gray-50/60">
+                    <th className="pl-5 pr-2 py-3 w-10">
+                      <Checkbox checked={allVisibleSel} onChange={() => toggleAll(visible.map(r => r.key), allVisibleSel)} />
+                    </th>
+                    <Th>Employee</Th><Th right>Base salary</Th><Th right>Annual</Th>
+                    <Th>Last payroll</Th><Th right>Paid {YEAR}</Th><Th>Updated</Th><Th />
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {visible.map(r => {
+                    const isSel = selected.has(r.key)
+                    return (
+                      <tr key={r.key} className={`transition-colors ${isSel ? 'bg-indigo-50/50' : 'hover:bg-gray-50/60'} ${r.inactive ? 'opacity-70' : ''}`}>
+                        <td className="pl-5 pr-2 py-3"><Checkbox checked={isSel} onChange={() => toggle(r.key)} /></td>
+                        <td className="px-4 py-3"><PersonCell person={r.person} extra={inactiveTag(r)} /></td>
+                        <td className="px-4 py-3 text-right whitespace-nowrap">{baseCell(r)}</td>
+                        <td className="px-4 py-3 text-right whitespace-nowrap text-gray-500 tabular-nums">
+                          {r.cfg ? fmt$0(num(r.cfg.basic_salary) * 12) : '—'}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">{lastCell(r)}</td>
+                        <td className="px-4 py-3 text-right whitespace-nowrap font-medium text-gray-700 tabular-nums">
+                          {r.ytd ? fmt$(r.ytd) : <span className="text-gray-300">—</span>}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-400">
+                          {r.cfg ? fmtDate(r.cfg.updated_at ?? r.cfg.created_at) : '—'}
+                        </td>
+                        <td className="pr-5 pl-2 py-3 text-right">
+                          <button onClick={() => setEditing(r.key)} title="Edit salary"
+                            className="w-8 h-8 rounded-lg inline-flex items-center justify-center text-gray-400 hover:bg-gray-100 hover:text-[#1e3a8a] transition-colors">
+                            <Pencil size={15} />
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
             </div>
 
-            {/* ── Basic Salary — only editable when no config exists yet ── */}
-            {form.employee_id && !configExists && (
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
-                  Basic Salary <span className="text-red-400 normal-case">*</span>
-                  <span className="ml-1 normal-case font-normal text-gray-400">(saved to salary config)</span>
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-gray-600">$</span>
-                  <input
-                    required
-                    type="number" min={0} step="0.01"
-                    value={form.basic_salary}
-                    onChange={e => onChange({ ...form, basic_salary: e.target.value })}
-                    placeholder="0.00"
-                    className={`${FIELD_CLS} pl-7 text-gray-800 font-medium`}
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* ── Pay period — month picker (add mode only) ── */}
-            {!isEdit && (
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
-                  Pay Period <span className="text-red-400 normal-case">*</span>
-                </label>
-                <input
-                  required
-                  type="month"
-                  value={form.pay_period_month}
-                  onChange={e => onChange({ ...form, pay_period_month: e.target.value })}
-                  className={FIELD_CLS}
-                />
-              </div>
-            )}
-
-            {/* ── Overtime / Bonus / Deductions / Tax ── */}
-            <div className="grid grid-cols-2 gap-3">
-              {NUM_FIELDS.map(({ key, label, cls }) => (
-                <div key={key}>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">{label}</label>
-                  <div className="relative">
-                    <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold ${cls}`}>$</span>
-                    <input
-                      type="number" min={0} step="0.01"
-                      value={form[key]}
-                      onChange={e => onChange({ ...form, [key]: e.target.value })}
-                      placeholder="0.00"
-                      className={`${FIELD_CLS} pl-7 ${cls} font-medium`}
-                    />
+            {/* Mobile */}
+            <div className="md:hidden divide-y divide-gray-100">
+              {visible.map(r => {
+                const isSel = selected.has(r.key)
+                return (
+                  <div key={r.key} className={`p-4 space-y-3 ${isSel ? 'bg-indigo-50/50' : ''}`}>
+                    <div className="flex items-center gap-3">
+                      <Checkbox checked={isSel} onChange={() => toggle(r.key)} />
+                      <div className="flex-1 min-w-0"><PersonCell person={r.person} extra={inactiveTag(r)} /></div>
+                      <button onClick={() => setEditing(r.key)}
+                        className="w-9 h-9 rounded-xl border border-gray-100 bg-gray-50 flex items-center justify-center text-gray-500 shrink-0">
+                        <Pencil size={14} />
+                      </button>
+                    </div>
+                    <div className="flex items-center justify-between gap-3 pl-7">
+                      <div>
+                        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Base</p>
+                        <div className="mt-0.5">{baseCell(r)}</div>
+                      </div>
+                      <div className="text-right">{lastCell(r)}</div>
+                    </div>
                   </div>
-                </div>
-              ))}
-
-              {/* Net salary preview */}
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
-                  Net Salary (preview)
-                </label>
-                <div className="w-full rounded-lg border border-gray-100 bg-gray-50 px-3.5 py-2.5 text-sm font-bold text-gray-900">
-                  ${net.toFixed(2)}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex gap-3 px-6 py-4 border-t border-gray-100 bg-gray-50/50 rounded-b-2xl">
-            <button type="button" onClick={onClose}
-              className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 bg-white text-sm font-semibold text-gray-700 hover:bg-gray-50">
-              Cancel
-            </button>
-            <button type="submit" disabled={loading || !form.employee_id}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[#1e3a8a] hover:bg-[#162d6e] text-white text-sm font-semibold disabled:opacity-60">
-              {loading && <Loader2 size={14} className="animate-spin" />}
-              {isEdit ? 'Save Changes' : 'Add Record'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  )
-}
-
-// ── Salary Config modal (Add / Edit base salary configs) ──────────────────────
-function ConfigModal({ mode, form, employees, onChange, onSubmit, onClose, loading }) {
-  const isEdit = mode === 'edit'
-
-  function handleEmpChange(empId) {
-    const emp = employees.find(e => e.id === empId)
-    onChange({
-      ...form,
-      employee_id:   empId,
-      employee_name: emp ? `${emp.first_name} ${emp.last_name}` : '',
-      department:    emp?.departments?.name ?? '',
-    })
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-        <div className="flex items-start justify-between px-6 py-5 border-b border-gray-100">
-          <div>
-            <h2 className="text-lg font-bold text-gray-900">{isEdit ? 'Edit' : 'Add'} Salary Config</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Sets the employee's base salary structure.</p>
-          </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100"><X size={17} /></button>
-        </div>
-
-        <form onSubmit={onSubmit}>
-          <div className="px-6 py-5 space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
-                Employee <span className="text-red-400 normal-case">*</span>
-              </label>
-              <select
-                required
-                disabled={isEdit}
-                value={form.employee_id}
-                onChange={e => handleEmpChange(e.target.value)}
-                className={`${FIELD_CLS} disabled:bg-gray-50 cursor-pointer`}
-              >
-                <option value="">Select employee…</option>
-                {employees.map(e => (
-                  <option key={e.id} value={e.id}>{e.first_name} {e.last_name}</option>
-                ))}
-              </select>
+                )
+              })}
             </div>
 
-            {form.department && (
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Department</label>
-                <input readOnly value={form.department} className={`${FIELD_CLS} bg-gray-50 text-gray-500`} />
-              </div>
-            )}
-
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
-                Basic Salary <span className="text-red-400 normal-case">*</span>
-              </label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-gray-600">$</span>
-                <input
-                  required type="number" min={0} step="0.01"
-                  value={form.basic_salary}
-                  onChange={e => onChange({ ...form, basic_salary: e.target.value })}
-                  placeholder="0.00"
-                  className={`${FIELD_CLS} pl-7 font-medium text-gray-800`}
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="flex gap-3 px-6 py-4 border-t border-gray-100 bg-gray-50/50 rounded-b-2xl">
-            <button type="button" onClick={onClose}
-              className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 bg-white text-sm font-semibold text-gray-700 hover:bg-gray-50">
-              Cancel
-            </button>
-            <button type="submit" disabled={loading}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[#1e3a8a] hover:bg-[#162d6e] text-white text-sm font-semibold disabled:opacity-60">
-              {loading && <Loader2 size={14} className="animate-spin" />}
-              {isEdit ? 'Save Changes' : 'Add Config'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  )
-}
-
-// ── Main page ──────────────────────────────────────────────────────────────────
-export default function SalaryList() {
-  /* ── view toggle ── */
-  const [view, setView] = useState('records') // 'records' | 'configs'
-
-  /* ── payroll_records state ── */
-  const [records,   setRecords]   = useState([])
-  const [configs,   setConfigs]   = useState([])   // employee_salary_config
-  const [employees, setEmployees] = useState([])   // for config modal dropdown
-  const [loading,   setLoading]   = useState(true)
-  const [saving,    setSaving]    = useState(false)
-  const [deleting,  setDeleting]  = useState(false)
-  const [toast,     setToast]     = useState(null)
-  const [search,    setSearch]    = useState('')
-
-  /* ── modal state ── */
-  const [recModal,   setRecModal]   = useState({ open: false })
-  const [recForm,    setRecForm]    = useState(EMPTY_RECORD_FORM)
-  const [cfgModal,   setCfgModal]   = useState({ open: false })
-  const [cfgForm,    setCfgForm]    = useState(EMPTY_CONFIG_FORM)
-  const [delTarget,  setDelTarget]  = useState(null)
-  const [delContext, setDelContext] = useState('record') // 'record' | 'config'
-
-  const showToast    = useCallback((type, msg) => setToast({ type, message: msg }), [])
-  const dismissToast = useCallback(() => setToast(null), [])
-
-  // ── fetch payroll_records ─────────────────────────────────────────────────
-  // Tries the 3-layer join (payroll_records → salary_config → employees).
-  // Falls back to 2-layer if the FK constraint hasn't been created yet,
-  // so records always display even before the SQL migration is run.
-  const fetchRecords = useCallback(async () => {
-    try {
-      const data = await db.getPayrollRecords()
-      setRecords(data)
-    } catch (err) {
-      showToast('error', err.message)
-    }
-  }, [showToast])
-
-  const fetchConfigs = useCallback(async () => {
-    try {
-      const [cfgs, emps] = await Promise.all([
-        db.getSalaryConfigs(),
-        db.getEmployees(),
-      ])
-      setConfigs(cfgs)
-      setEmployees(emps.filter(e => e.status === 'active'))
-    } catch (err) {
-      showToast('error', err.message)
-    }
-  }, [showToast])
-
-  useEffect(() => {
-    setLoading(true)
-    Promise.all([fetchRecords(), fetchConfigs()]).finally(() => setLoading(false))
-  }, [fetchRecords, fetchConfigs])
-
-  function refresh() {
-    setLoading(true)
-    Promise.all([fetchRecords(), fetchConfigs()]).finally(() => setLoading(false))
-  }
-
-  // ── Add / Edit payroll_record ──────────────────────────────────────────────
-  function openAddRecord() {
-    setRecForm(EMPTY_RECORD_FORM)
-    setRecModal({ open: true, mode: 'add' })
-  }
-
-  function openEditRecord(row) {
-    // employee_id is the master FK; we use it as the edit form key
-    const empId = row.employee_salary_config?.employee_id ?? ''
-    setRecForm({
-      employee_id:      empId,
-      pay_period_month: row.pay_period?.slice(0, 7) ?? '',
-      basic_salary:     '',        // read from existing config in modal
-      overtime:         row.overtime   ?? '',
-      bonus:            row.bonus      ?? '',
-      deductions:       row.deductions ?? '',
-      tax:              row.tax        ?? '',
-    })
-    setRecModal({ open: true, mode: 'edit', id: row.id })
-  }
-
-  async function handleSaveRecord(e) {
-    e.preventDefault()
-    if (!recForm.employee_id) { showToast('error', 'Select an employee.'); return }
-
-    const employee = employees.find(emp => emp.id === recForm.employee_id)
-    setSaving(true)
-
-    // ── Step 1: find or auto-create employee_salary_config ────────────────────
-    let cfg = configs.find(c => c.employee_id === recForm.employee_id)
-
-    if (!cfg) {
-      // No salary config for this employee yet — create a default one
-      try {
-        cfg = await db.addSalaryConfig({
-          employee_id:   recForm.employee_id,
-          employee_name: employee ? `${employee.first_name} ${employee.last_name}` : '',
-          department:    employee?.departments?.name ?? '',
-          basic_salary:  Number(recForm.basic_salary) || 0,
-        })
-        fetchConfigs()
-      } catch (cfgErr) {
-        showToast('error', `Could not create salary config: ${cfgErr.message}`)
-        setSaving(false)
-        return
-      }
-    }
-
-    // ── Step 2: insert / update payroll_records ────────────────────────────────
-    const payload = {
-      salary_config_id: cfg.id,
-      employee_id:      recForm.employee_id,
-      basic_salary:     Number(cfg.basic_salary ?? 0),
-      overtime:         Number(recForm.overtime)   || 0,
-      bonus:            Number(recForm.bonus)      || 0,
-      deductions:       Number(recForm.deductions) || 0,
-      tax:              Number(recForm.tax)        || 0,
-    }
-
-    try {
-      if (recModal.mode === 'add') {
-        payload.pay_period = monthToDate(recForm.pay_period_month)
-        await db.addPayrollRecord(payload)
-      } else {
-        await db.updatePayrollRecord(recModal.id, payload)
-      }
-    } catch (err) {
-      showToast('error', err.message)
-      setSaving(false)
-      return
-    }
-
-    setSaving(false)
-    showToast('success', recModal.mode === 'add' ? 'Record added.' : 'Record updated.')
-    setRecModal({ open: false })
-    fetchRecords()
-  }
-
-  // ── Add / Edit employee_salary_config ──────────────────────────────────────
-  function openAddConfig() {
-    setCfgForm(EMPTY_CONFIG_FORM)
-    setCfgModal({ open: true, mode: 'add' })
-  }
-
-  function openEditConfig(cfg) {
-    setCfgForm({
-      employee_id:   cfg.employee_id,
-      employee_name: cfg.employee_name,
-      department:    cfg.department,
-      basic_salary:  cfg.basic_salary,
-    })
-    setCfgModal({ open: true, mode: 'edit', id: cfg.id })
-  }
-
-  async function handleSaveConfig(e) {
-    e.preventDefault()
-    setSaving(true)
-
-    const payload = {
-      employee_id:   cfgForm.employee_id   || null,
-      employee_name: cfgForm.employee_name.trim(),
-      department:    cfgForm.department.trim(),
-      basic_salary:  Number(cfgForm.basic_salary) || 0,
-    }
-
-    try {
-      if (cfgModal.mode === 'add') {
-        await db.addSalaryConfig(payload)
-      } else {
-        await db.updateSalaryConfig(cfgModal.id, payload)
-      }
-    } catch (err) {
-      showToast('error', err.message)
-      setSaving(false)
-      return
-    }
-
-    setSaving(false)
-    showToast('success', cfgModal.mode === 'add' ? 'Config added.' : 'Config updated.')
-    setCfgModal({ open: false })
-    fetchConfigs()
-  }
-
-  // ── Delete ─────────────────────────────────────────────────────────────────
-  async function handleDelete() {
-    if (!delTarget) return
-    setDeleting(true)
-    try {
-      if (delContext === 'record') {
-        await db.deletePayrollRecord(delTarget.id)
-      } else {
-        await db.deleteSalaryConfig(delTarget.id)
-      }
-    } catch (err) {
-      showToast('error', err.message)
-      setDeleting(false)
-      return
-    }
-    setDeleting(false)
-    showToast('success', 'Deleted successfully.')
-    setDelTarget(null)
-    if (delContext === 'record') fetchRecords()
-    else fetchConfigs()
-  }
-
-  // ── filtered data ──────────────────────────────────────────────────────────
-  const filteredRecords = records.filter(r => {
-    const q = search.toLowerCase()
-    if (!q) return true
-    const cfg  = r.employee_salary_config
-    const name = (cfg?.employee_name ?? '').toLowerCase()
-    const dept = (cfg?.department    ?? '').toLowerCase()
-    return name.includes(q) || dept.includes(q)
-  })
-
-  const filteredConfigs = configs.filter(c => {
-    const q = search.toLowerCase()
-    if (!q) return true
-    return (c.employee_name ?? '').toLowerCase().includes(q) ||
-           (c.department    ?? '').toLowerCase().includes(q)
-  })
-
-  // ── render ─────────────────────────────────────────────────────────────────
-  return (
-    <div className="space-y-4">
-
-      {/* ── Top bar ── */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4">
-        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-
-          {/* Search */}
-          <div className="relative flex-1">
-            <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-            <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search by name or department..."
-              className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50/60 text-sm
-                focus:outline-none focus:ring-2 focus:ring-[#1e3a8a]/20 focus:border-[#1e3a8a] transition-colors"
-            />
-          </div>
-
-          {/* View toggle */}
-          <div className="flex items-center rounded-xl border border-gray-200 p-0.5 shrink-0 bg-gray-50">
-            <button
-              onClick={() => setView('records')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all
-                ${view === 'records' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
-            >
-              Records
-            </button>
-            <button
-              onClick={() => setView('configs')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all
-                ${view === 'configs' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
-            >
-              Salary Configs
-            </button>
-          </div>
-
-          {/* Count + refresh + primary action */}
-          <div className="flex items-center gap-2.5 shrink-0">
-            <span className="text-sm text-gray-400 whitespace-nowrap">
-              {view === 'records' ? filteredRecords.length : filteredConfigs.length} record{(view === 'records' ? filteredRecords.length : filteredConfigs.length) !== 1 ? 's' : ''}
-            </span>
-            <button onClick={refresh}
-              className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-500 transition-colors">
-              <RefreshCw size={14} />
-            </button>
-            {view === 'records' ? (
-              <button onClick={openAddRecord}
-                className="flex items-center gap-1.5 px-4 py-2.5 bg-[#1e3a8a] hover:bg-[#162d6e] text-white text-sm font-semibold rounded-xl shadow-sm transition-colors whitespace-nowrap">
-                <Plus size={15} /> Add Salary Record
-              </button>
-            ) : (
-              <button onClick={openAddConfig}
-                className="flex items-center gap-1.5 px-4 py-2.5 bg-[#1e3a8a] hover:bg-[#162d6e] text-white text-sm font-semibold rounded-xl shadow-sm transition-colors whitespace-nowrap">
-                <Settings2 size={15} /> Add Config
-              </button>
-            )}
-          </div>
-        </div>
+            <ListFooter shown={visible.length} total={rows.length} noun="employees"
+              right={<span>Visible base total <b className="text-gray-700">{fmt$(sumBy(visible, r => num(r.cfg?.basic_salary)))}</b></span>} />
+          </>
+        )}
       </div>
 
-      {/* ── payroll_records table ── */}
-      {view === 'records' && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          {loading ? (
-            <div className="flex items-center justify-center gap-3 py-24 text-gray-400">
-              <Loader2 size={22} className="animate-spin text-blue-600" />
-              <span className="text-sm">Loading…</span>
-            </div>
-          ) : filteredRecords.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-24 gap-3 text-gray-400">
-              <Plus size={36} className="text-gray-200" />
-              <p className="text-sm font-medium text-center">
-                {search ? 'No records match your search.' : 'No payroll records yet. Click "+ Add Salary Record".'}
-              </p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[1040px]">
-                <thead>
-                  <tr className="border-b border-gray-100">
-                    {['EMPLOYEE','DEPARTMENT','PAY PERIOD','BASIC SALARY','OVERTIME','BONUS','DEDUCTIONS','TAX','NET SALARY','STATUS',''].map(h => (
-                      <th key={h} className="px-5 py-4 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider last:w-16">
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {filteredRecords.map(row => {
-                    const cfg   = row.employee_salary_config
-                    const name  = cfg?.employee_name ?? '—'
-                    const ini   = initials(name)
-                    const email = cfg?.department ?? null
-                    return (
-                      <tr key={row.id} className="hover:bg-gray-50/40 transition-colors group">
-                        <td className="px-5 py-4">
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
-                              <span className="text-[13px] font-bold text-indigo-600">{ini}</span>
-                            </div>
-                            <div>
-                              <p className="font-semibold text-gray-800">{name}</p>
-                              <p className="text-xs text-gray-400">{email ?? cfg?.department ?? '—'}</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-5 py-4 text-gray-500">{cfg?.department ?? '—'}</td>
-                        <td className="px-5 py-4 text-gray-500 text-xs whitespace-nowrap">{fmtPeriod(row.pay_period)}</td>
-                        {/* basic_salary is in payroll_records (copied from config at insert time) */}
-                        <td className="px-5 py-4 text-gray-800 font-medium">{fmt$(row.basic_salary)}</td>
-                        {/* These columns are in payroll_records */}
-                        <td className="px-5 py-4 text-green-600  font-medium">{fmt$(row.overtime)}</td>
-                        <td className="px-5 py-4 text-purple-600 font-medium">{fmt$(row.bonus)}</td>
-                        <td className="px-5 py-4 text-red-600    font-medium">-{fmt$(row.deductions)}</td>
-                        <td className="px-5 py-4 text-orange-500 font-medium">-{fmt$(row.tax)}</td>
-                        {/* net_salary is GENERATED by DB */}
-                        <td className="px-5 py-4 font-bold text-gray-900">{fmt$(row.net_salary)}</td>
-                        <td className="px-5 py-4">
-                          <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold
-                            ${STATUS_CLS[row.status] ?? 'bg-gray-100 text-gray-600'}`}>
-                            {row.status ?? '—'}
-                          </span>
-                        </td>
-                        <td className="px-4 py-4">
-                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button onClick={() => openEditRecord(row)}
-                              className="p-1.5 rounded-lg text-gray-400 hover:bg-blue-50 hover:text-blue-600 transition-colors">
-                              <Pencil size={14} />
-                            </button>
-                            <button onClick={() => { setDelTarget(row); setDelContext('record') }}
-                              className="p-1.5 rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-600 transition-colors">
-                              <Trash2 size={14} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t-2 border-gray-100 bg-gray-50/60">
-                    <td colSpan={8} className="px-5 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                      Total Net Salary
-                    </td>
-                    <td className="px-5 py-3 font-extrabold text-gray-900">
-                      {fmt$(filteredRecords.reduce((s, r) => s + Number(r.net_salary ?? 0), 0))}
-                    </td>
-                    <td colSpan={2} />
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
+      <BulkBar count={selectedRows.length} busy={bulkBusy} onClear={clear}>
+        <BulkAction Icon={Percent} onClick={() => setBulkOpen(true)} disabled={bulkBusy}>Adjust salary</BulkAction>
+        <BulkAction Icon={Trash2} danger onClick={bulkRemove} disabled={bulkBusy || !selectedRows.some(r => r.cfg)}>
+          {armed === 'remove' ? `Confirm · ${selectedRows.filter(r => r.cfg).length}` : 'Remove salary'}
+        </BulkAction>
+      </BulkBar>
 
-      {/* ── employee_salary_config table ── */}
-      {view === 'configs' && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          {loading ? (
-            <div className="flex items-center justify-center gap-3 py-24 text-gray-400">
-              <Loader2 size={22} className="animate-spin text-blue-600" />
-              <span className="text-sm">Loading…</span>
-            </div>
-          ) : filteredConfigs.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-24 gap-3 text-gray-400">
-              <Settings2 size={36} className="text-gray-200" />
-              <p className="text-sm font-medium">No salary configs yet. Add one to start processing payroll.</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[580px]">
-                <thead>
-                  <tr className="border-b border-gray-100">
-                    {['EMPLOYEE','DEPARTMENT','BASIC SALARY','CREATED',''].map(h => (
-                      <th key={h} className="px-5 py-4 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider last:w-16">
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {filteredConfigs.map(cfg => {
-                    const ini   = initials(cfg.employee_name)
-                    const email = cfg.department ?? null
-                    return (
-                      <tr key={cfg.id} className="hover:bg-gray-50/40 transition-colors group">
-                        <td className="px-5 py-4">
-                          <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-full bg-indigo-100 flex items-center justify-center shrink-0">
-                              <span className="text-xs font-bold text-indigo-600">{ini}</span>
-                            </div>
-                            <div>
-                              <p className="font-semibold text-gray-800">{cfg.employee_name}</p>
-                              <p className="text-xs text-gray-400">{email ?? cfg.department ?? '—'}</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-5 py-4 text-gray-500">{cfg.department}</td>
-                        <td className="px-5 py-4 font-bold text-gray-900">{fmt$(cfg.basic_salary)}</td>
-                        <td className="px-5 py-4 text-gray-400 text-xs">
-                          {cfg.created_at ? new Date(cfg.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
-                        </td>
-                        <td className="px-4 py-4">
-                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button onClick={() => openEditConfig(cfg)}
-                              className="p-1.5 rounded-lg text-gray-400 hover:bg-blue-50 hover:text-blue-600 transition-colors">
-                              <Pencil size={14} />
-                            </button>
-                            <button onClick={() => { setDelTarget(cfg); setDelContext('config') }}
-                              className="p-1.5 rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-600 transition-colors">
-                              <Trash2 size={14} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── modals ── */}
-      {recModal.open && (
-        <RecordModal
-          mode={recModal.mode}
-          form={recForm}
-          employees={employees}
-          configs={configs}
-          onChange={setRecForm}
-          onSubmit={handleSaveRecord}
-          onClose={() => setRecModal({ open: false })}
-          loading={saving}
+      {editingRow && (
+        <SalaryModal
+          person={editingRow.person}
+          config={editingRow.cfg}
+          history={editingRow.recs}
+          onClose={() => setEditing(null)}
+          onSave={amount => saveOne(editingRow, amount)}
+          onDelete={async () => {
+            await removeConfigs([editingRow])
+            showToast('success', `Salary removed for ${editingRow.person.name.split(' ')[0]}`)
+          }}
         />
       )}
 
-      {cfgModal.open && (
-        <ConfigModal
-          mode={cfgModal.mode}
-          form={cfgForm}
-          employees={employees}
-          onChange={setCfgForm}
-          onSubmit={handleSaveConfig}
-          onClose={() => setCfgModal({ open: false })}
-          loading={saving}
-        />
+      {bulkOpen && (
+        <BulkSalaryModal rows={selectedRows} onClose={() => setBulkOpen(false)} onApply={applyBulk} />
       )}
-
-      <DeleteModal
-        target={delTarget}
-        loading={deleting}
-        onConfirm={handleDelete}
-        onCancel={() => setDelTarget(null)}
-      />
 
       <Toast toast={toast} onDismiss={dismissToast} />
     </div>

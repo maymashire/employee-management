@@ -20,7 +20,7 @@ import {
 
 const toObj = d => ({ id: d.id, ...d.data() })
 
-const computeNet = r =>
+export const computeNet = r =>
   (Number(r.basic_salary) || 0)
   + (Number(r.overtime)   || 0)
   + (Number(r.bonus)      || 0)
@@ -232,6 +232,33 @@ export async function updateSalaryConfig(id, data) {
   await updateDoc(doc(db, 'employee_salary_config', id), data)
 }
 
+/**
+ * Create or update many salary configs with batched writes.
+ * items: [{ id?, employee_id, employee_name, department, basic_salary }]
+ * Returns the saved configs (new ones get their generated id).
+ */
+export async function batchSaveSalaryConfigs(items) {
+  const now   = new Date().toISOString()
+  const saved = []
+  for (let i = 0; i < items.length; i += 450) {
+    const batch = writeBatch(db)
+    items.slice(i, i + 450).forEach(({ id, ...data }) => {
+      if (id) {
+        const patch = { ...data, updated_at: now }
+        batch.update(doc(db, 'employee_salary_config', id), patch)
+        saved.push({ id, ...patch })
+      } else {
+        const ref     = doc(collection(db, 'employee_salary_config'))
+        const payload = { ...data, created_at: now, updated_at: now }
+        batch.set(ref, payload)
+        saved.push({ id: ref.id, ...payload })
+      }
+    })
+    await batch.commit()
+  }
+  return saved
+}
+
 export async function deleteSalaryConfig(id) {
   await deleteDoc(doc(db, 'employee_salary_config', id))
 }
@@ -310,6 +337,31 @@ export async function deletePayrollRecord(id) {
 }
 
 /**
+ * Apply many payroll-record patches with batched writes.
+ * items: [{ id, ...patch }] — when a patch touches a financial field it must
+ * carry the full set (basic_salary, overtime, bonus, deductions, tax) so
+ * net_salary can be recomputed without a read.
+ */
+export async function batchUpdatePayrollRecords(items) {
+  for (let i = 0; i < items.length; i += 450) {
+    const batch = writeBatch(db)
+    items.slice(i, i + 450).forEach(({ id, ...patch }) => {
+      const updates = 'basic_salary' in patch ? { ...patch, net_salary: computeNet(patch) } : patch
+      batch.update(doc(db, 'payroll_records', id), updates)
+    })
+    await batch.commit()
+  }
+}
+
+export async function batchDeletePayrollRecords(ids) {
+  for (let i = 0; i < ids.length; i += 450) {
+    const batch = writeBatch(db)
+    ids.slice(i, i + 450).forEach(id => batch.delete(doc(db, 'payroll_records', id)))
+    await batch.commit()
+  }
+}
+
+/**
  * Batch upsert for PayrollProcess.
  * rows: array of { salary_config_id, employee_id, pay_period, basic_salary, overtime, bonus, deductions, tax }
  * configsMap: { [salary_config_id]: { employee_name, department } }  — pre-fetched from getSalaryConfigs()
@@ -341,34 +393,34 @@ export async function batchUpsertPayrollRecords(rows, payPeriod, configsMap = {}
     }
   }
 
-  const now = new Date().toISOString()
-  const ops = []
+  const now  = new Date().toISOString()
+  const ops  = []
 
   for (const row of newRows) {
     const cfg = configsMap[row.salary_config_id]
-    ops.push(
-      addDoc(collection(db, 'payroll_records'), {
-        ...row,
-        net_salary:             computeNet(row),
-        status:                 'Unpaid',
-        created_at:             now,
-        employee_salary_config: cfg
-          ? { employee_name: cfg.employee_name, department: cfg.department, employee_id: cfg.employee_id }
-          : null,
-      }),
-    )
+    ops.push(b => b.set(doc(collection(db, 'payroll_records')), {
+      ...row,
+      net_salary:             computeNet(row),
+      status:                 'Unpaid',
+      created_at:             now,
+      employee_salary_config: cfg
+        ? { employee_name: cfg.employee_name, department: cfg.department, employee_id: cfg.employee_id }
+        : null,
+    }))
   }
 
   for (const row of updatedRows) {
     const { _existingId, ...fields } = row
-    ops.push(
-      updateDoc(doc(db, 'payroll_records', _existingId), {
-        ...fields,
-        net_salary: computeNet(fields),
-      }),
-    )
+    ops.push(b => b.update(doc(db, 'payroll_records', _existingId), {
+      ...fields,
+      net_salary: computeNet(fields),
+    }))
   }
 
-  await Promise.all(ops)
+  for (let i = 0; i < ops.length; i += 450) {
+    const batch = writeBatch(db)
+    ops.slice(i, i + 450).forEach(op => op(batch))
+    await batch.commit()
+  }
   return { newRows, updatedRows, lockedRows }
 }
