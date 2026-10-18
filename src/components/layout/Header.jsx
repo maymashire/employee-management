@@ -4,6 +4,7 @@ import { Bell, Search, ChevronDown, UserCircle2, KeyRound, SlidersHorizontal, Us
 import { useAuth } from '../../context/AuthContext'
 import { Avatar } from '../ui'
 import Hamburger from './Hamburger'
+import { BRAND } from '../Brand'
 
 const PATH_TITLES = {
   '/dashboard':               'Dashboard',
@@ -35,7 +36,7 @@ export default function Header({ onMenuToggle, collapsed = false, mobileOpen = f
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef(null)
 
-  const pageTitle = PATH_TITLES[pathname] ?? 'WorkForce'
+  const pageTitle = PATH_TITLES[pathname] ?? BRAND.name
 
   useEffect(() => { setMenuOpen(false) }, [pathname])
 

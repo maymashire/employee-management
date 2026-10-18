@@ -11,12 +11,13 @@ import {
   LayoutDashboard, Users, Building2,
   Clock, CalendarDays, ScanLine, Calendar, BarChart3,
   Wallet, FileSpreadsheet, Calculator, FileText, History,
-  Settings, LogOut, ChevronDown, Activity, Sparkles, UsersRound, Search, X,
+  Settings, LogOut, ChevronDown, Activity, UsersRound, Search, X,
   PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useCompany } from '../../context/CompanyContext'
 import { Avatar } from '../ui'
+import { LogoMark, Wordmark, BRAND } from '../Brand'
 
 const MAIN_NAV = [
   { label: 'Dashboard',   path: '/dashboard',   icon: LayoutDashboard },
@@ -261,14 +262,16 @@ export default function Sidebar({ open, mini = false, isDesktop = true, onClose,
         <div className={`h-16 flex items-center shrink-0 ${mini ? 'justify-center px-2' : 'gap-3 px-5'}`}
           style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           <Link to="/dashboard" aria-label={company.name}
-            className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 hover:scale-105 transition-transform"
-            style={{ background: 'linear-gradient(135deg, #6366f1, #3b82f6)', boxShadow: '0 6px 18px rgba(99,102,241,0.35)' }}>
-            <Sparkles size={15} className="text-white" strokeWidth={2} />
+            className="shrink-0 rounded-xl hover:scale-105 transition-transform"
+            style={{ boxShadow: '0 6px 18px rgba(99,102,241,0.35)' }}>
+            <LogoMark size={36} />
           </Link>
           {!mini && (
             <>
               <div className="leading-tight min-w-0 flex-1">
-                <p className="text-white font-bold text-sm tracking-tight truncate">{company.name}</p>
+                {company.name === BRAND.name
+                  ? <Wordmark size={21} tone="light" />
+                  : <p className="text-white font-bold text-sm tracking-tight truncate">{company.name}</p>}
                 <p className="text-slate-500 text-[10px] truncate">{company.tagline}</p>
               </div>
               {!isDesktop && (

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate, Navigate } from 'react-router-dom'
 import { Eye, EyeOff, Lock, Mail, ShieldCheck, Users, BarChart3, Zap, CheckCircle2, Info } from 'lucide-react'
 import { useAuth, LOGOUT_REASON_KEY } from '../context/AuthContext'
+import { BrandLockup, BRAND } from '../components/Brand'
 
 const LOGOUT_MESSAGES = {
   idle:     'You were signed out after a period of inactivity.',
@@ -65,16 +66,7 @@ export default function Login() {
 
         {/* Brand top */}
         <div className="relative z-10">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
-              style={{ background: 'linear-gradient(135deg, #6366f1, #3b82f6)' }}>
-              <span className="text-white font-extrabold text-sm tracking-wider">WF</span>
-            </div>
-            <div>
-              <p className="text-white font-bold text-lg tracking-tight leading-none">WorkForce</p>
-              <p className="text-indigo-300 text-xs">Employee Management System</p>
-            </div>
-          </div>
+          <BrandLockup size={40} tone="light" />
         </div>
 
         {/* Center content */}
@@ -137,15 +129,8 @@ export default function Login() {
         <div className="w-full max-w-sm fade-in">
 
           {/* Mobile brand */}
-          <div className="lg:hidden flex items-center justify-center gap-3 mb-10">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center"
-              style={{ background: 'linear-gradient(135deg, #6366f1, #3b82f6)' }}>
-              <span className="text-white font-extrabold text-sm">WF</span>
-            </div>
-            <div>
-              <p className="font-bold text-lg text-gray-900 leading-none">WorkForce</p>
-              <p className="text-gray-400 text-xs">Employee Management System</p>
-            </div>
+          <div className="lg:hidden flex justify-center mb-10">
+            <BrandLockup size={40} tone="dark" />
           </div>
 
           {/* Heading */}
@@ -257,7 +242,7 @@ export default function Login() {
           </div>
 
           <p className="text-center text-xs text-gray-300 mt-4">
-            © {new Date().getFullYear()} WorkForce. All rights reserved.
+            © {new Date().getFullYear()} {BRAND.name} · {BRAND.slogan}
           </p>
         </div>
       </div>

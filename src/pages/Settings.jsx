@@ -16,6 +16,7 @@ import { PasswordInput, NewPasswordFields } from '../components/PasswordInput'
 import { validateNewPassword } from '../lib/password'
 import { fileToAvatar, MAX_UPLOAD_MB } from '../lib/image'
 import { useToast, Toast, Avatar, ErrorNote, INPUT_CLS, fmtDate, fmtDateTime } from '../components/ui'
+import { LogoMark } from '../components/Brand'
 
 const TABS = [
   { key: 'profile',     label: 'Profile',     Icon: UserCircle2,       desc: 'Photo and personal details' },
@@ -339,9 +340,7 @@ function CompanyTab({ toast }) {
           <Field label="Tagline"><input value={form.tagline} onChange={e => set({ tagline: e.target.value })} className={INPUT_CLS} maxLength={40} /></Field>
         </div>
         <div className="mt-4 inline-flex items-center gap-3 px-4 py-3 rounded-xl" style={{ background: '#0f172a' }}>
-          <span className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #6366f1, #3b82f6)' }}>
-            <Sparkles size={14} className="text-white" />
-          </span>
+          <LogoMark size={32} />
           <span className="leading-tight">
             <span className="block text-white font-bold text-sm">{form.name || 'Company'}</span>
             <span className="block text-slate-500 text-[10px]">{form.tagline}</span>

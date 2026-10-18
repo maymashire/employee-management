@@ -5,10 +5,11 @@
  */
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import * as db from '../lib/db'
+import { BRAND } from '../components/Brand'
 
 export const COMPANY_DEFAULTS = {
-  name:         'WorkForce',
-  tagline:      'Employee Management',
+  name:         BRAND.name,
+  tagline:      BRAND.slogan,
   shift_start:  '09:00',
   shift_end:    '17:00',
   payroll_days: 30,
@@ -25,7 +26,15 @@ export function CompanyProvider({ children }) {
 
   useEffect(() => {
     db.getCompanySettings()
-      .then(c => { if (c) { current = { ...COMPANY_DEFAULTS, ...c }; setCompany(current) } })
+      .then(c => {
+        if (!c) return
+        // Older saves stored the previous product defaults — show the new brand instead
+        const legacy = { name: ['WorkForce', 'VibeHR'], tagline: ['Employee Management', 'Employee Management System'] }
+        const clean = { ...c }
+        Object.entries(legacy).forEach(([k, olds]) => { if (olds.includes(clean[k])) delete clean[k] })
+        current = { ...COMPANY_DEFAULTS, ...clean }
+        setCompany(current)
+      })
       .catch(() => {})
   }, [])
 
