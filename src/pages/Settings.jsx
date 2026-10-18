@@ -1,6 +1,7 @@
 /**
  * Settings — personal profile (photo, name, phone), security (password),
- * preferences (start page, idle sign-out) and, for Admins, company settings.
+ * preferences (start page, idle sign-out), installing the app (PWA) and,
+ * for Admins, company work-hour settings.
  */
 import { useState, useRef, useEffect } from 'react'
 import { useSearchParams, useNavigate, Link } from 'react-router-dom'
@@ -8,6 +9,8 @@ import {
   UserCircle2, ShieldCheck, SlidersHorizontal, Building2, UsersRound, Camera, Upload, Trash2,
   Lock, Mail, Phone, KeyRound, LogOut, Monitor, CalendarClock, LayoutDashboard, Users as UsersIcon,
   CalendarDays, Wallet, Activity, Timer, Clock, Save, ChevronRight, Loader2, Sparkles,
+  Download, MonitorSmartphone, AppWindow, Zap, RefreshCw, CheckCircle2, Share, SquarePlus,
+  MoreVertical, MonitorDown, Info, Copy, Check,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useCompany, COMPANY_DEFAULTS } from '../context/CompanyContext'
@@ -16,11 +19,14 @@ import { PasswordInput, NewPasswordFields } from '../components/PasswordInput'
 import { validateNewPassword } from '../lib/password'
 import { fileToAvatar, MAX_UPLOAD_MB } from '../lib/image'
 import { useToast, Toast, Avatar, ErrorNote, INPUT_CLS, fmtDate, fmtDateTime } from '../components/ui'
+import { LogoMark, BRAND } from '../components/Brand'
+import { usePwaInstall } from '../lib/pwa'
 
 const TABS = [
   { key: 'profile',     label: 'Profile',     Icon: UserCircle2,       desc: 'Photo and personal details' },
   { key: 'security',    label: 'Security',    Icon: ShieldCheck,       desc: 'Password and sign-in' },
   { key: 'preferences', label: 'Preferences', Icon: SlidersHorizontal, desc: 'Start page and auto sign-out' },
+  { key: 'app',         label: 'Install app', Icon: Download,          desc: 'Teamora on desktop or phone' },
   { key: 'company',     label: 'Company',     Icon: Building2,         desc: 'Work hours and payroll', admin: true },
 ]
 
@@ -351,6 +357,136 @@ function CompanyTab({ toast }) {
   )
 }
 
+// ── Install app ──────────────────────────────────────────────────────────────
+const APP_PERKS = [
+  { Icon: MonitorSmartphone, title: 'On your desktop or phone', text: 'Open Teamora from the taskbar, dock or home screen.' },
+  { Icon: AppWindow,         title: 'Its own window',           text: 'No browser tabs or address bar — just your workspace.' },
+  { Icon: Zap,               title: 'Quick shortcuts',          text: 'Right-click or long-press the icon for Attendance, Check in and more.' },
+  { Icon: RefreshCw,         title: 'Always up to date',        text: 'Updates arrive automatically — nothing to download.' },
+]
+
+function installSteps(pwa) {
+  if (pwa.iOS) return {
+    device: 'iPhone / iPad',
+    steps: [
+      { Icon: Share,      text: <>Tap the <b>Share</b> button in the browser toolbar.</> },
+      { Icon: SquarePlus, text: <>Scroll down and tap <b>Add to Home Screen</b>.</> },
+      { Icon: Check,      text: <>Tap <b>Add</b> — Teamora appears on your home screen.</> },
+    ],
+  }
+  if (pwa.safari) return {
+    device: 'Safari on Mac',
+    steps: [
+      { Icon: Share,      text: <>Open the <b>File</b> menu (or the <b>Share</b> button).</> },
+      { Icon: SquarePlus, text: <>Choose <b>Add to Dock</b>.</> },
+      { Icon: Check,      text: <>Click <b>Add</b> — Teamora appears in your Dock.</> },
+    ],
+  }
+  if (pwa.firefox) return null
+  if (pwa.android) return {
+    device: 'Android',
+    steps: [
+      { Icon: MoreVertical, text: <>Tap the <b>⋮</b> menu in the browser.</> },
+      { Icon: SquarePlus,   text: <>Tap <b>Install app</b> (or <b>Add to Home screen</b>).</> },
+      { Icon: Check,        text: <>Confirm — Teamora appears on your home screen.</> },
+    ],
+  }
+  return {
+    device: pwa.edge ? 'Microsoft Edge' : 'Chrome / Edge on desktop',
+    steps: [
+      { Icon: MonitorDown,  text: <>Click the <b>install icon</b> at the right end of the address bar.</> },
+      { Icon: MoreVertical, text: <>Or open the browser menu and choose <b>{pwa.edge ? 'Apps → Install this site as an app' : 'Cast, save and share → Install page as app'}</b>.</> },
+      { Icon: Check,        text: <>Click <b>Install</b> — Teamora opens in its own window.</> },
+    ],
+  }
+}
+
+function InstallTab({ toast }) {
+  const pwa = usePwaInstall()
+  const [busy, setBusy]     = useState(false)
+  const [copied, setCopied] = useState(false)
+  const guide = installSteps(pwa)
+
+  async function install() {
+    setBusy(true)
+    const outcome = await pwa.promptInstall()
+    setBusy(false)
+    if (outcome === 'accepted') toast('success', 'Teamora is installed — open it from your desktop or home screen')
+    else if (outcome === 'dismissed') toast('error', 'Installation cancelled')
+  }
+
+  function copyLink() {
+    navigator.clipboard?.writeText(window.location.origin).then(() => {
+      setCopied(true); setTimeout(() => setCopied(false), 1500)
+    }).catch(() => {})
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-2xl p-5 sm:p-6 text-white shadow-lg relative overflow-hidden"
+        style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 45%, #1e3a8a 100%)' }}>
+        <div className="absolute -top-16 -right-10 w-56 h-56 rounded-full opacity-25 pointer-events-none" style={{ background: 'radial-gradient(circle, #6366f1, transparent 70%)' }} />
+        <div className="relative flex flex-col sm:flex-row sm:items-center gap-5">
+          <span className="rounded-2xl ring-1 ring-white/20 shadow-xl self-start"><LogoMark size={72} /></span>
+          <div className="min-w-0 flex-1">
+            <p className="text-xl font-extrabold tracking-tight">Install {BRAND.name}</p>
+            <p className="text-sm text-indigo-200 mt-0.5">Use {BRAND.name} like a native app on this device.</p>
+            {pwa.installed && (
+              <p className="inline-flex items-center gap-1.5 mt-3 px-3 py-1.5 rounded-full text-xs font-bold bg-emerald-400/15 text-emerald-300 ring-1 ring-emerald-300/30">
+                <CheckCircle2 size={14} /> {pwa.standalone ? "You're using the installed app" : 'Installed on this device'}
+              </p>
+            )}
+          </div>
+          {!pwa.installed && pwa.canInstall && (
+            <button onClick={install} disabled={busy}
+              className="flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-sm font-bold bg-white text-[#1e3a8a] hover:bg-indigo-50 disabled:opacity-60 shadow-lg transition-colors">
+              {busy ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} Install app
+            </button>
+          )}
+        </div>
+      </div>
+
+      <Card title="Why install?" sub="Same account and data — just faster to reach" Icon={Sparkles}>
+        <div className="grid sm:grid-cols-2 gap-3">
+          {APP_PERKS.map(p => (
+            <div key={p.title} className="flex items-start gap-3 rounded-xl bg-gray-50 px-4 py-3">
+              <span className="w-9 h-9 rounded-xl bg-white text-[#1e3a8a] shadow-sm flex items-center justify-center shrink-0"><p.Icon size={17} /></span>
+              <div>
+                <p className="text-sm font-bold text-gray-800">{p.title}</p>
+                <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{p.text}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {!pwa.installed && !pwa.canInstall && (
+        guide ? (
+          <Card title="How to install" sub={guide.device} Icon={Info}>
+            <ol className="space-y-3">
+              {guide.steps.map((s, i) => (
+                <li key={i} className="flex items-center gap-3">
+                  <span className="w-7 h-7 rounded-full bg-[#1e3a8a] text-white text-xs font-bold flex items-center justify-center shrink-0">{i + 1}</span>
+                  <s.Icon size={17} className="text-gray-400 shrink-0" />
+                  <span className="text-sm text-gray-700">{s.text}</span>
+                </li>
+              ))}
+            </ol>
+          </Card>
+        ) : (
+          <Card title="Install from another browser" sub="Firefox can't install web apps" Icon={Info}>
+            <p className="text-sm text-gray-600">Open {BRAND.name} in <b>Chrome</b>, <b>Edge</b> or <b>Safari</b> to install it on this device.</p>
+            <button onClick={copyLink}
+              className="mt-4 flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border border-gray-200 text-gray-700 hover:bg-gray-50">
+              {copied ? <Check size={15} className="text-emerald-500" /> : <Copy size={15} />} {copied ? 'Link copied' : 'Copy link'}
+            </button>
+          </Card>
+        )
+      )}
+    </div>
+  )
+}
+
 // ════════════════════════════════════════════════════════════════════════════════
 export default function Settings() {
   const { profile, displayName, avatarUrl, isAdmin } = useAuth()
@@ -435,6 +571,7 @@ export default function Settings() {
           {active === 'profile'     && <ProfileTab     key={profile.id} toast={showToast} />}
           {active === 'security'    && <SecurityTab    toast={showToast} />}
           {active === 'preferences' && <PreferencesTab toast={showToast} />}
+          {active === 'app'         && <InstallTab     toast={showToast} />}
           {active === 'company'     && <CompanyTab     toast={showToast} />}
         </div>
       </div>

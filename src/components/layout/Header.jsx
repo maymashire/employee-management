@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Bell, Search, ChevronDown, UserCircle2, KeyRound, SlidersHorizontal, UsersRound, LogOut } from 'lucide-react'
+import { Bell, Search, ChevronDown, UserCircle2, KeyRound, SlidersHorizontal, UsersRound, LogOut, Download } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { Avatar } from '../ui'
 import Hamburger from './Hamburger'
@@ -58,6 +58,7 @@ export default function Header({ onMenuToggle, collapsed = false, mobileOpen = f
     { label: 'My profile',      Icon: UserCircle2,       to: '/settings?tab=profile' },
     { label: 'Change password', Icon: KeyRound,          to: '/settings?tab=security' },
     { label: 'Preferences',     Icon: SlidersHorizontal, to: '/settings?tab=preferences' },
+    { label: 'Install app',     Icon: Download,          to: '/settings?tab=app' },
     ...(isAdmin ? [{ label: 'Manage users', Icon: UsersRound, to: '/users' }] : []),
   ]
 
