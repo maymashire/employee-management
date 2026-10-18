@@ -8,7 +8,7 @@ const NAVY   = '#1e3a8a'
 const ACCENT = '#f59e0b'
 
 // Eight people around one table — the "o" in teamora (viewBox 64×64).
-const RING      = [[32, 16], [43.3, 20.7], [48, 32], [43.3, 43.3], [32, 48], [20.7, 43.3], [16, 32], [20.7, 20.7]]
+export const RING = [[32, 16], [43.3, 20.7], [48, 32], [43.3, 43.3], [32, 48], [20.7, 43.3], [16, 32], [20.7, 20.7]]
 const ICON_RING = [[32, 17], [42.6, 21.4], [47, 32], [42.6, 42.6], [32, 47], [21.4, 42.6], [17, 32], [21.4, 21.4]]
 
 /** The dotted ring on its own (the "o"). */

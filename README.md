@@ -14,7 +14,7 @@ Firebase Firestore.
 - **Attendance**: daily marking with bulk actions, a check-in/out kiosk, team and individual calendar, and period reports with comparisons.
 - **Payroll**: salary structure, monthly payroll runs (Draft → Processing → Paid), payslips with printing, history, reports, and payment status.
 - **Analytics**: workforce, attendance and performance views by year.
-- **Users & Settings**: login accounts with roles, profile photo, password change, preferences such as start page and idle sign-out, and company settings (name, work hours, payroll days).
+- **Users & Settings**: login accounts with roles, profile photo, password change, preferences such as start page and idle sign-out, and company settings (work hours, payroll days).
 - **Command palette**: press `Ctrl/⌘ + K` to jump to any page or employee. Press `Ctrl/⌘ + B` to collapse the sidebar.
 
 ## Stack

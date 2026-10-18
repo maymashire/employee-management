@@ -16,13 +16,12 @@ import { PasswordInput, NewPasswordFields } from '../components/PasswordInput'
 import { validateNewPassword } from '../lib/password'
 import { fileToAvatar, MAX_UPLOAD_MB } from '../lib/image'
 import { useToast, Toast, Avatar, ErrorNote, INPUT_CLS, fmtDate, fmtDateTime } from '../components/ui'
-import { LogoMark } from '../components/Brand'
 
 const TABS = [
   { key: 'profile',     label: 'Profile',     Icon: UserCircle2,       desc: 'Photo and personal details' },
   { key: 'security',    label: 'Security',    Icon: ShieldCheck,       desc: 'Password and sign-in' },
   { key: 'preferences', label: 'Preferences', Icon: SlidersHorizontal, desc: 'Start page and auto sign-out' },
-  { key: 'company',     label: 'Company',     Icon: Building2,         desc: 'Branding, work hours, payroll', admin: true },
+  { key: 'company',     label: 'Company',     Icon: Building2,         desc: 'Work hours and payroll', admin: true },
 ]
 
 const LANDING = [
@@ -318,13 +317,12 @@ function CompanyTab({ toast }) {
   async function submit(e) {
     e.preventDefault()
     const days = Number(form.payroll_days)
-    if (!form.name.trim())                 return setError('Company name is required.')
     if (!form.shift_start || !form.shift_end) return setError('Set both work-day start and end times.')
     if (form.shift_end <= form.shift_start) return setError('Work day must end after it starts.')
     if (!(days >= 20 && days <= 31))       return setError('Payroll days per month must be between 20 and 31.')
     setBusy(true)
     try {
-      await saveCompany({ name: form.name.trim(), tagline: form.tagline.trim(), shift_start: form.shift_start, shift_end: form.shift_end, payroll_days: days })
+      await saveCompany({ shift_start: form.shift_start, shift_end: form.shift_end, payroll_days: days })
       toast('success', 'Company settings saved')
     } catch (err) {
       setError(err.message)
@@ -334,21 +332,6 @@ function CompanyTab({ toast }) {
 
   return (
     <form onSubmit={submit} className="space-y-5">
-      <Card title="Branding" sub="Shown in the sidebar and on printed payslips" Icon={Building2}>
-        <div className="grid sm:grid-cols-2 gap-4">
-          <Field label="Company name"><input value={form.name} onChange={e => set({ name: e.target.value })} className={INPUT_CLS} maxLength={40} /></Field>
-          <Field label="Tagline"><input value={form.tagline} onChange={e => set({ tagline: e.target.value })} className={INPUT_CLS} maxLength={40} /></Field>
-        </div>
-        <div className="mt-4 inline-flex items-center gap-3 px-4 py-3 rounded-xl" style={{ background: '#0f172a' }}>
-          <LogoMark size={32} />
-          <span className="leading-tight">
-            <span className="block text-white font-bold text-sm">{form.name || 'Company'}</span>
-            <span className="block text-slate-500 text-[10px]">{form.tagline}</span>
-          </span>
-          <span className="text-[10px] text-slate-500 ml-3">Sidebar preview</span>
-        </div>
-      </Card>
-
       <Card title="Work hours & payroll" sub="Used for late detection in attendance and absence deductions in payroll" Icon={Clock}
         footer={<SaveButton type="submit" busy={busy} disabled={!dirty} />}>
         <div className="grid sm:grid-cols-3 gap-4">

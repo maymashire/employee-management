@@ -209,7 +209,7 @@ export default function Dashboard() {
                 <p className="text-xs text-indigo-200 mt-0.5">
                   {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
                 </p>
-                <p className="text-[11px] text-indigo-300/80 mt-0.5">{company.name} · shift starts {fmtTime(company.shift_start || '09:00')}</p>
+                <p className="text-[11px] text-indigo-300/80 mt-0.5">Shift {fmtTime(company.shift_start || '09:00')} – {fmtTime(company.shift_end || '17:00')}</p>
               </div>
               <div className="relative flex items-center gap-1.5">
                 <button onClick={() => fetchData(true)} title="Refresh now"

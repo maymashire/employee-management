@@ -1,23 +1,25 @@
 /**
  * Company-wide settings (Firestore doc settings/company), editable by Admins
- * in Settings → Company. Used for branding, attendance shift start and the
- * payroll absence-deduction rate.
+ * in Settings → Company: work hours (late detection, overtime) and payroll
+ * days per month (absence-deduction rate). Branding is fixed to the product
+ * (components/Brand.jsx) and is not configurable.
  */
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import * as db from '../lib/db'
-import { BRAND } from '../components/Brand'
 
 export const COMPANY_DEFAULTS = {
-  name:         BRAND.name,
-  tagline:      BRAND.slogan,
   shift_start:  '09:00',
   shift_end:    '17:00',
   payroll_days: 30,
 }
 
+// Only these keys are read from Firestore — older saves may still carry a
+// company name / tagline, which are ignored.
+const pick = c => Object.fromEntries(
+  Object.keys(COMPANY_DEFAULTS).filter(k => c?.[k] != null && c[k] !== '').map(k => [k, c[k]]),
+)
+
 let current = COMPANY_DEFAULTS
-/** Latest company settings for non-React code (e.g. payslip printing). */
-export const companyNow = () => current
 
 const CompanyContext = createContext(null)
 
@@ -28,19 +30,16 @@ export function CompanyProvider({ children }) {
     db.getCompanySettings()
       .then(c => {
         if (!c) return
-        // Older saves stored the previous product defaults — show the new brand instead
-        const legacy = { name: ['WorkForce', 'VibeHR'], tagline: ['Employee Management', 'Employee Management System'] }
-        const clean = { ...c }
-        Object.entries(legacy).forEach(([k, olds]) => { if (olds.includes(clean[k])) delete clean[k] })
-        current = { ...COMPANY_DEFAULTS, ...clean }
+        current = { ...COMPANY_DEFAULTS, ...pick(c) }
         setCompany(current)
       })
       .catch(() => {})
   }, [])
 
   const saveCompany = useCallback(async patch => {
-    await db.saveCompanySettings(patch)
-    current = { ...current, ...patch }
+    const clean = pick(patch)
+    await db.saveCompanySettings(clean)
+    current = { ...current, ...clean }
     setCompany(current)
   }, [])
 

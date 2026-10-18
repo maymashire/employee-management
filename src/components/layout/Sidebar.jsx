@@ -15,7 +15,6 @@ import {
   PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
-import { useCompany } from '../../context/CompanyContext'
 import { Avatar } from '../ui'
 import { LogoMark, Wordmark, BRAND } from '../Brand'
 
@@ -221,7 +220,6 @@ function FloatLayer({ float }) {
 // ════════════════════════════════════════════════════════════════════════════════
 export default function Sidebar({ open, mini = false, isDesktop = true, onClose, onToggle, onSearch }) {
   const { profile, isAdmin, canAccessPayroll, signOut, displayName, roleLabel, avatarUrl } = useAuth()
-  const { company } = useCompany()
   const navigate = useNavigate()
   const { pathname } = useLocation()
   const float = useFloat()
@@ -258,22 +256,20 @@ export default function Sidebar({ open, mini = false, isDesktop = true, onClose,
         <div className="absolute inset-x-0 top-0 h-px"
           style={{ background: 'linear-gradient(90deg, transparent, rgba(99,102,241,0.5), transparent)' }} />
 
-        {/* Brand */}
-        <div className={`h-16 flex items-center shrink-0 ${mini ? 'justify-center px-2' : 'gap-3 px-5'}`}
+        {/* Brand — Teamora dotted-"o" wordmark; the app icon in the collapsed rail */}
+        <div className={`h-16 flex items-center shrink-0 ${mini ? 'justify-center px-2' : 'justify-between gap-3 px-5'}`}
           style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-          <Link to="/dashboard" aria-label={company.name}
-            className="shrink-0 rounded-xl hover:scale-105 transition-transform"
-            style={{ boxShadow: '0 6px 18px rgba(99,102,241,0.35)' }}>
-            <LogoMark size={36} />
-          </Link>
-          {!mini && (
+          {mini ? (
+            <Link to="/dashboard" aria-label={BRAND.name}
+              className="shrink-0 rounded-xl ring-1 ring-white/15 hover:scale-105 transition-transform">
+              <LogoMark size={36} />
+            </Link>
+          ) : (
             <>
-              <div className="leading-tight min-w-0 flex-1">
-                {company.name === BRAND.name
-                  ? <Wordmark size={21} tone="light" />
-                  : <p className="text-white font-bold text-sm tracking-tight truncate">{company.name}</p>}
-                <p className="text-slate-500 text-[10px] truncate">{company.tagline}</p>
-              </div>
+              <Link to="/dashboard" aria-label={BRAND.name} onClick={onClose}
+                className="min-w-0 rounded-lg hover:opacity-90 transition-opacity">
+                <Wordmark size={26} tone="light" />
+              </Link>
               {!isDesktop && (
                 <button onClick={onClose} aria-label="Close menu"
                   className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 transition-colors">
